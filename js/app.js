@@ -194,7 +194,7 @@
         s.rgb[0], s.rgb[1], s.rgb[2], s.hex, patternLabel(s.pattern), w[0], w[1], w[2]].join(';');
     });
     // BOM, чтобы Excel правильно открыл кириллицу
-    download('hvac-palette.csv', 'text/csv;charset=utf-8', '﻿' + [head.join(';')].concat(rows).join('\r\n'));
+    download('hvac-palette.csv', 'text/csv;charset=utf-8', '\ufeff' + [head.join(';')].concat(rows).join('\r\n'));
   }
 
   function exportJson() {
