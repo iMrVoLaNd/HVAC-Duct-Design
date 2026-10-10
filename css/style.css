@@ -29,7 +29,7 @@ body {
 /* ---------- лента (как в Revit) ---------- */
 
 .ribbon {
-  position: sticky;
+  position: static;
   top: 0;
   z-index: 10;
   background: var(--ribbon);
@@ -43,6 +43,8 @@ body {
   flex-wrap: wrap;
   gap: 8px 28px;
 }
+.ribbon__group--walls { flex: 1 1 100%; }
+.ribbon__label--gap { margin-left: 12px; }
 .ribbon__group { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .ribbon__label { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-soft); }
 
@@ -78,6 +80,10 @@ body {
 .btn[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
 
 button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+@media (min-width: 961px) {
+  .ribbon { position: sticky; }
+}
 
 /* ---------- лист ---------- */
 
@@ -135,6 +141,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .stats { border-collapse: collapse; width: 100%; max-width: 640px; font-size: 15px; }
 .stats th, .stats td { border: 1px solid var(--ink); padding: 5px 10px; text-align: left; }
+.stats tbody th { font-weight: 400; }
 .stats thead th { background: var(--ribbon); font-weight: 700; }
 .stats tbody th { text-align: center; }
 .stats .q { text-transform: uppercase; letter-spacing: .05em; font-size: 13px; }
@@ -211,7 +218,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .swatches {
   display: grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-template-columns: repeat(10, minmax(0, 1fr));
   gap: 8px 6px;
   margin: 14px 0 4px;
 }
@@ -294,6 +301,9 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .swatches { grid-template-columns: repeat(6, minmax(0, 1fr)); }
   .ribbon { position: static; }
+  #walls { flex-wrap: wrap; }
+  #walls button { border-bottom: 1px solid #aab3bc; }
+  .ribbon__label--gap { margin-left: 0; }
   .ribbon__inner { gap: 8px 16px; }
   .seg button { padding: 6px 9px; font-size: 13px; }
   .stats { font-size: 13px; }

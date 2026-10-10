@@ -8,12 +8,17 @@
   var view = 'iso';           // 'iso' — объём, как на референсах; 'plan' — план Revit со стенками
   var filter = 'all';
   var isoWalls = false;       // подсвечивать ли боковые стенки (длинные рёбра) в объёмном виде
-  var wallId = 'dark';        // вариант цвета боковых стенок (см. Palette.WALL_PRESETS)
+  var wallId = 'soft';        // вариант цвета боковых стенок (см. Palette.WALL_PRESETS)
 
   function wallPreset() {
     return P.WALL_PRESETS.filter(function (w) { return w.id === wallId; })[0];
   }
   function wallOf(kind) { return wallPreset()[kind]; }
+
+  var widthId = 'medium';     // толщина линии стенок (см. Palette.WALL_WIDTHS)
+  function wallW() {
+    return P.WALL_WIDTHS.filter(function (w) { return w.id === widthId; })[0].w;
+  }
   function rgbText(hex) { return P.hexToRgb(hex).join('·'); }
 
   // Применить выбранный цвет стенок: CSS-переменные (рамка заголовков, плашки) и подписи.
@@ -31,6 +36,10 @@
         + ' title="' + t('wallTitle', w.supply, w.exhaust) + '">'
         + '<i class="dot" style="background:' + w.supply + '"></i><i class="dot" style="background:' + w.exhaust + '"></i>'
         + t('wall_' + w.id) + '</button>';
+    }).join('');
+    document.getElementById('thick').innerHTML = P.WALL_WIDTHS.map(function (w) {
+      return '<button type="button" data-thick="' + w.id + '"' + (w.id === widthId ? ' class="is-active"' : '') + '>'
+        + t('thick_' + w.id) + '</button>';
     }).join('');
   }
 
@@ -66,7 +75,7 @@
     if (isoWalls) {
       var edge = function (p, q) {
         return '<line x1="' + p[0].toFixed(1) + '" y1="' + p[1].toFixed(1) + '" x2="' + q[0].toFixed(1) + '" y2="' + q[1].toFixed(1)
-          + '" stroke="' + wallOf(s.kind) + '" stroke-width="1.9" stroke-linecap="round"/>';
+          + '" stroke="' + wallOf(s.kind) + '" stroke-width="' + (wallW() * 1.05).toFixed(2) + '" stroke-linecap="round"/>';
       };
       out += edge(A, AL) + edge(AH, ALH) + edge(add(AH, D), add(ALH, D));
     }
@@ -123,7 +132,7 @@
     var x1 = 34, x2 = 206, y1 = 34, y2 = 78;
     return '<svg class="duct" viewBox="0 0 240 100" role="img" aria-label="' + t('ductAria', s.code) + '">'
       + '<rect x="' + x1 + '" y="' + y1 + '" width="' + (x2 - x1) + '" height="' + (y2 - y1) + '" fill="' + s.hex + '"/>'
-      + '<path d="M' + x1 + ' ' + y1 + 'H' + x2 + 'M' + x1 + ' ' + y2 + 'H' + x2 + '" stroke="' + wallOf(s.kind) + '" stroke-width="1.8" fill="none"/>'
+      + '<path d="M' + x1 + ' ' + y1 + 'H' + x2 + 'M' + x1 + ' ' + y2 + 'H' + x2 + '" stroke="' + wallOf(s.kind) + '" stroke-width="' + wallW() + '" fill="none"/>'
       + flangesSvg(x1, x2, y1, y2, 6, 7, 4.5, 4, 1)
       // выноска: от номера системы внутрь воздуховода
       + '<line x1="127" y1="21" x2="115" y2="62" stroke="#111" stroke-width="1"/>'
@@ -187,14 +196,17 @@
     var rows = '';
     ['supply', 'exhaust'].forEach(function (kind) {
       var list = P.SYSTEMS[kind], pre = P.PREFIX[kind];
-      var st = P.windowStats(list, list.length);
-      var names = st.pair.map(function (code) {
-        return code + ' ' + nm(list.filter(function (s) { return s.code === code; })[0]);
+      var scopes = [[t('rowNeighbors'), 2], [t('rowWindow'), 5], [t('rowAll'), list.length]];
+      scopes.forEach(function (sc) {
+        var st = P.windowStats(list, sc[1]);
+        var names = st.pair.map(function (code) {
+          return code + ' ' + nm(list.filter(function (s) { return s.code === code; })[0]);
+        });
+        rows += '<tr><th>' + pre + '1–' + pre + list.length + ' · ' + sc[0] + '</th>'
+          + '<td><b>' + st.min.toFixed(1) + '</b></td>'
+          + '<td>' + names[0] + t('pairAnd') + names[1] + '</td>'
+          + '<td class="q">' + quality(st.min) + '</td></tr>';
       });
-      rows += '<tr><th>' + pre + '1–' + pre + list.length + '</th>'
-        + '<td><b>' + st.min.toFixed(1) + '</b></td>'
-        + '<td>' + names[0] + t('pairAnd') + names[1] + '</td>'
-        + '<td class="q">' + quality(st.min) + '</td></tr>';
     });
     document.getElementById('check').innerHTML =
       '<h2 class="group__title">' + t('checkTitle') + '</h2>'
@@ -221,7 +233,7 @@
     items.forEach(function (s, i) {
       var y = top + i * pitch;
       svg += '<rect x="' + x1 + '" y="' + y + '" width="' + (x2 - x1) + '" height="' + h + '" fill="' + s.hex + '"/>'
-        + '<path d="M' + x1 + ' ' + y + 'H' + x2 + 'M' + x1 + ' ' + (y + h) + 'H' + x2 + '" stroke="' + wallOf(s.kind) + '" stroke-width="1.2" fill="none"/>'
+        + '<path d="M' + x1 + ' ' + y + 'H' + x2 + 'M' + x1 + ' ' + (y + h) + 'H' + x2 + '" stroke="' + wallOf(s.kind) + '" stroke-width="' + (wallW() * 0.7).toFixed(2) + '" fill="none"/>'
         + flangesSvg(x1, x2, y, y + h, 3, 2, 2.4, 1.6, .7)
         + '<text x="' + (x1 - 10) + '" y="' + (y + h - 2) + '" text-anchor="end" class="floor__lbl">' + s.code + '</text>'
         + '<text x="' + (x2 + 10) + '" y="' + (y + h - 2) + '" class="floor__lbl">' + s.code + '</text>';
@@ -318,6 +330,15 @@
       wallId = b.dataset.wall;
       this.querySelectorAll('button').forEach(function (x) { x.classList.toggle('is-active', x === b); });
       applyWalls();
+      render();
+      renderFloor();
+    });
+
+    document.getElementById('thick').addEventListener('click', function (e) {
+      var b = e.target.closest('button');
+      if (!b) return;
+      widthId = b.dataset.thick;
+      this.querySelectorAll('button').forEach(function (x) { x.classList.toggle('is-active', x === b); });
       render();
       renderFloor();
     });

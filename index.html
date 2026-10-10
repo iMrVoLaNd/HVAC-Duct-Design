@@ -29,11 +29,6 @@
         <button type="button" data-view="plan" data-i18n="viewPlan"></button>
       </div>
     </div>
-    <div class="ribbon__group" role="group" data-i18n-attr="aria-label:ariaWalls">
-      <span class="ribbon__label" data-i18n="ribbonWalls"></span>
-      <div class="seg" id="walls"></div>
-      <button type="button" class="btn" id="iso-walls" aria-pressed="false" data-i18n="wallsIso" data-i18n-attr="title:wallsIsoTitle"></button>
-    </div>
     <div class="ribbon__group" role="group" data-i18n-attr="aria-label:ariaExport">
       <span class="ribbon__label" data-i18n="ribbonExport"></span>
       <button type="button" class="btn" id="dl-csv">CSV</button>
@@ -45,6 +40,13 @@
         <button type="button" data-lang="uk">УКР</button>
         <button type="button" data-lang="en">ENG</button>
       </div>
+    </div>
+    <div class="ribbon__group ribbon__group--walls" role="group" data-i18n-attr="aria-label:ariaWalls">
+      <span class="ribbon__label" data-i18n="ribbonWalls"></span>
+      <div class="seg" id="walls"></div>
+      <button type="button" class="btn" id="iso-walls" aria-pressed="false" data-i18n="wallsIso" data-i18n-attr="title:wallsIsoTitle"></button>
+      <span class="ribbon__label ribbon__label--gap" data-i18n="ribbonThick"></span>
+      <div class="seg" id="thick" data-i18n-attr="aria-label:ariaThick"></div>
     </div>
   </div>
 </header>
@@ -67,7 +69,7 @@
     <p class="floor__hint" data-i18n="floorHint"></p>
     <div class="floor__controls">
       <label><span data-i18n="floorCount"></span> <output id="floor-n">8</output>
-        <input type="range" id="floor-range" min="2" max="12" value="8">
+        <input type="range" id="floor-range" min="2" max="20" value="8">
       </label>
       <div class="seg" id="floor-kind">
         <button type="button" data-kind="supply" data-i18n="floorSupply"></button>
@@ -80,8 +82,8 @@
 
   <footer class="titleblock">
     <div><span data-i18n="tbProject"></span><b data-i18n="tbProjectVal"></b></div>
-    <div><span data-i18n="tbSupply"></span><b>П1–П12</b></div>
-    <div><span data-i18n="tbExhaust"></span><b>В1–В12</b></div>
+    <div><span data-i18n="tbSupply"></span><b>П1–П20</b></div>
+    <div><span data-i18n="tbExhaust"></span><b>В1–В20</b></div>
     <div><span data-i18n="tbNext"></span><b data-i18n="tbNextVal"></b></div>
   </footer>
 </main>

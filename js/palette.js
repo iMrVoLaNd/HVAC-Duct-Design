@@ -1,7 +1,7 @@
 /*
  * Палитра систем вентиляции — в стиле эталонного скриншота (матовые «сигнальные» цвета).
  *
- * По 12 цветов на группу, подобраны вручную по референсам. Приточные — земляная палитра
+ * По 20 цветов на группу, подобраны вручную по референсам. Приточные — земляная палитра
  * (терракот, зелёные, горчица, охра, кирпич), цвета П1–П7 и П9–П12 взяты точно из легенд референсов.
  * Вытяжные — холодные, серые и коричневые; В1–В3 — плашки с первого скриншота.
  *
@@ -78,47 +78,74 @@
   // Хотите другой цвет — поменяйте HEX здесь, проверка на странице пересчитается сама.
 
   var COLORS = {
-    // Приточные — земляная палитра с референсов (BIM Shaded with Edges): терракот, зелёные, горчица, охра.
-    // ref: true — цвет взят точно из легенды референса.
+    // Приточные — земляная палитра с референсов (терракот, зелёные, горчица, охра, кирпич) плюс жёлтые, персиковые
+    // и песочные тона. По 20 цветов на группу, порядок подобран так, чтобы соседние номера сильно отличались
+    // (ΔE соседей ≥ 23, любые 5 подряд ≥ 12). ref: true — цвет взят точно из ваших референсов.
     supply: [
-      { name: 'Terracotta red', nameUk: 'Теракотово-червоний',  hex: '#C35B44', ref: true },   // П1
-      { name: 'Grass green', nameUk: 'Трав’янисто-зелений',   hex: '#699D5A', ref: true },   // П2
-      { name: 'Mustard yellow', nameUk: 'Гірчично-жовтий',      hex: '#CBA453', ref: true },   // П3
-      { name: 'Ochre orange', nameUk: 'Охристо-помаранчевий',    hex: '#E37C21', ref: true },   // П4
-      { name: 'Olive green', nameUk: 'Оливково-зелений',     hex: '#89B07F', ref: true },   // П5
-      { name: 'Brick orange', nameUk: 'Цегляно-помаранчевий',   hex: '#C94E00', ref: true },   // П6
-      { name: 'Dark green', nameUk: 'Темно-зелений',        hex: '#316549', ref: true },   // П7
-      { name: 'Bright yellow', nameUk: 'Яскраво-жовтий',          hex: '#EAC22E' },              // П8  (в референсе П8 ≈ П3, заменён)
-      { name: 'Burgundy red', nameUk: 'Бордово-червоний',      hex: '#9D382F', ref: true },   // П9  (в референсе П9 ≈ П6, заменён)
-      { name: 'Olive khaki', nameUk: 'Оливково-хакі',        hex: '#596232', ref: true },   // П10
-      { name: 'Dark brown', nameUk: 'Темно-коричневий',     hex: '#433A2D', ref: true },   // П11
-      { name: 'Dark teal', nameUk: 'Темний синьо-зелений',  hex: '#2F4B46', ref: true }    // П12
+      { name: 'Ochre orange', nameUk: 'Охристо-помаранчевий', hex: '#E37C21', ref: true },
+      { name: 'Leaf green', nameUk: 'Листяно-зелений', hex: '#4E7D3A' },
+      { name: 'Mustard yellow', nameUk: 'Гірчично-жовтий', hex: '#CBA453', ref: true },
+      { name: 'Olive green', nameUk: 'Оливково-зелений', hex: '#89B07F', ref: true },
+      { name: 'Rust', nameUk: 'Іржавий', hex: '#A64B2A' },
+      { name: 'Light yellow', nameUk: 'Світло-жовтий', hex: '#F2DE7B' },
+      { name: 'Dusty lilac', nameUk: 'Пильно-бузковий', hex: '#8F7694' },
+      { name: 'Salmon', nameUk: 'Лососевий', hex: '#D98A6C' },
+      { name: 'Dark green', nameUk: 'Темно-зелений', hex: '#316549', ref: true },
+      { name: 'Amber', nameUk: 'Бурштиновий', hex: '#F0A91B' },
+      { name: 'Sage', nameUk: 'Шавлієвий', hex: '#7C8B5A' },
+      { name: 'Brick orange', nameUk: 'Цегляно-помаранчевий', hex: '#C94E00', ref: true },
+      { name: 'Lime', nameUk: 'Лаймовий', hex: '#A3B04A' },
+      { name: 'Burgundy red', nameUk: 'Бордово-червоний', hex: '#9D382F', ref: true },
+      { name: 'Peach', nameUk: 'Персиковий', hex: '#E8A878' },
+      { name: 'Olive khaki', nameUk: 'Оливково-хакі', hex: '#596232', ref: true },
+      { name: 'Bright yellow', nameUk: 'Яскраво-жовтий', hex: '#EAC22E' },
+      { name: 'Grass green', nameUk: 'Трав’янисто-зелений', hex: '#699D5A', ref: true },
+      { name: 'Terracotta red', nameUk: 'Теракотово-червоний', hex: '#C35B44', ref: true },
+      { name: 'Sand', nameUk: 'Піщаний', hex: '#B59B6E' }
     ],
-    // Вытяжные — холодные, серые и коричневые; первые три — плашки с первого скриншота.
+    // Вытяжные — холодные, серые и коричневые; В1–В3 были плашками с первого скриншота.
     exhaust: [
-      { name: 'Blue', nameUk: 'Синій',            hex: '#0150B7', ref: true },   // В1
-      { name: 'Slate', nameUk: 'Сланцевий',        hex: '#405364', ref: true },   // В2
-      { name: 'Wine brown', nameUk: 'Винно-коричневий', hex: '#553C3F', ref: true },   // В3
-      { name: 'Light blue', nameUk: 'Блакитний',          hex: '#4A9AD6' },
-      { name: 'Turquoise', nameUk: 'Бірюзовий',        hex: '#1F8A8A' },
-      { name: 'Grey', nameUk: 'Сірий',            hex: '#8A949E' },
-      { name: 'Brown', nameUk: 'Коричневий',       hex: '#8A5A3C' },
-      { name: 'Navy', nameUk: 'Темно-синій',      hex: '#1F3563' },
-      { name: 'Olive', nameUk: 'Оливковий',        hex: '#77783E' },
-      { name: 'Dark emerald', nameUk: 'Темний смарагд',   hex: '#17695B' },
-      { name: 'Sand', nameUk: 'Піщаний',         hex: '#B59B6E' },
-      { name: 'Dusty lilac', nameUk: 'Пильно-бузковий',   hex: '#8F7694' }
+      { name: 'Taupe', nameUk: 'Тауп', hex: '#7D6E63' },
+      { name: 'Turquoise', nameUk: 'Бірюзовий', hex: '#1F8A8A' },
+      { name: 'Blue', nameUk: 'Синій', hex: '#0150B7', ref: true },
+      { name: 'Chestnut', nameUk: 'Каштановий', hex: '#6B3B15' },
+      { name: 'Grey', nameUk: 'Сірий', hex: '#8A949E' },
+      { name: 'Dark teal', nameUk: 'Темний синьо-зелений', hex: '#2F4B46', ref: true },
+      { name: 'Wine brown', nameUk: 'Винно-коричневий', hex: '#553C3F', ref: true },
+      { name: 'Light blue', nameUk: 'Блакитний', hex: '#4A9AD6' },
+      { name: 'Olive', nameUk: 'Оливковий', hex: '#77783E' },
+      { name: 'Sea blue', nameUk: 'Морський', hex: '#2B6F8A' },
+      { name: 'Coffee', nameUk: 'Кавовий', hex: '#A6785A' },
+      { name: 'Navy', nameUk: 'Темно-синій', hex: '#1F3563' },
+      { name: 'Grey-green', nameUk: 'Сіро-зелений', hex: '#7E9189' },
+      { name: 'Dark brown', nameUk: 'Темно-коричневий', hex: '#433A2D', ref: true },
+      { name: 'Plum', nameUk: 'Сливовий', hex: '#6B4E71' },
+      { name: 'Dark emerald', nameUk: 'Темний смарагд', hex: '#17695B' },
+      { name: 'Steel blue', nameUk: 'Сталевий синій', hex: '#5C7FA3' },
+      { name: 'Brown', nameUk: 'Коричневий', hex: '#8A5A3C' },
+      { name: 'Slate', nameUk: 'Сланцевий', hex: '#405364', ref: true },
+      { name: 'Warm grey', nameUk: 'Теплий сірий', hex: '#8F8A82' }
     ]
   };
 
-  // Цвет боковых стенок воздуховода: приточные — красные, вытяжные — синие. Варианты оттенка:
-  // чистые «стандартные» цвета Revit выбиваются из спокойной палитры, а спокойные оттенки сливаются
-  // с заливками (красный с П9, синий с В1), поэтому лучший компромисс — тёмные оттенки (темнее любой заливки).
+  // Цвет боковых стенок воздуховода. По ГОСТ приточные — красные, вытяжные — синие, поэтому первые пять вариантов —
+  // разные оттенки красного и синего: от чистых (стандарт Revit) до приглушённых и тёмных. Чёрные и серые — для случая,
+  // когда группу различают по легенде, а не по цвету линии. Чем темнее оттенок, тем «тяжелее» он выглядит на плане.
   var WALL_PRESETS = [
-    { id: 'standard', name: 'Чистые',       supply: '#FF0000', exhaust: '#0000FF' },
-    { id: 'soft',     name: 'Спокойные',    supply: '#C0392B', exhaust: '#1F4FD8' },
-    { id: 'dark',     name: 'Тёмные',       supply: '#6B1A14', exhaust: '#0B2257' },
-    { id: 'darker',   name: 'Самые тёмные', supply: '#5A140F', exhaust: '#081B45' }
+    { id: 'standard', supply: '#FF0000', exhaust: '#0000FF' },
+    { id: 'signal',   supply: '#E32B1F', exhaust: '#1A3FD6' },
+    { id: 'soft',     supply: '#C0392B', exhaust: '#1F4FD8' },
+    { id: 'muted',    supply: '#A33B30', exhaust: '#2A4F9E' },
+    { id: 'dark',     supply: '#6B1A14', exhaust: '#0B2257' },
+    { id: 'black',    supply: '#151515', exhaust: '#151515' },
+    { id: 'grey',     supply: '#6E6E6E', exhaust: '#6E6E6E' }
+  ];
+
+  // Толщина линии боковых стенок (в единицах карточки; на «этаже» и в объёме пересчитывается).
+  var WALL_WIDTHS = [
+    { id: 'thin',   w: 1.0 },
+    { id: 'medium', w: 1.8 },
+    { id: 'thick',  w: 3.0 }
   ];
   var PREFIX = { supply: 'П', exhaust: 'В' };
 
@@ -156,7 +183,7 @@
   }
 
   var api = {
-    COLORS: COLORS, WALL_PRESETS: WALL_PRESETS, PREFIX: PREFIX, SYSTEMS: SYSTEMS,
+    COLORS: COLORS, WALL_PRESETS: WALL_PRESETS, WALL_WIDTHS: WALL_WIDTHS, PREFIX: PREFIX, SYSTEMS: SYSTEMS,
     hexToRgb: hexToRgb, rgbToHex: rgbToHex, rgbToLab: rgbToLab, deltaE: deltaE,
     windowStats: windowStats
   };

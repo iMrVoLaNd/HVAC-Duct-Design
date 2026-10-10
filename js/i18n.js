@@ -18,14 +18,14 @@
   var DICT = {
     en: {
       docTitle: 'Ventilation System Color Palette',
-      docDescription: 'Color coding of supply and exhaust systems in BIM/CAD: 12 colors per group in a signal-palette style.',
+      docDescription: 'Color coding of supply and exhaust systems in BIM/CAD: 20 colors per group in a signal-palette style.',
 
       ribbonShow: 'Show', showAll: 'All', showSupply: 'Supply', showExhaust: 'Exhaust',
       ribbonView: 'View', viewIso: '3D', viewPlan: 'Revit plan',
-      ribbonWalls: 'Walls', wallsIso: 'In 3D',
+      ribbonWalls: 'Walls', wallsIso: 'In 3D', ribbonThick: 'Thickness',
       wallsIsoTitle: 'Highlight the long edges of the duct with the wall color in the 3D view',
       ribbonExport: 'Export', ribbonLang: 'Language',
-      ariaShow: 'Show systems', ariaView: 'Duct view', ariaWalls: 'Side wall color',
+      ariaShow: 'Show systems', ariaView: 'Duct view', ariaWalls: 'Side wall color', ariaThick: 'Wall line thickness',
       ariaExport: 'Export', ariaLang: 'Interface language',
 
       sheetTitle: 'Ventilation System Color Palette',
@@ -35,23 +35,24 @@
         + 'and in the 3D view the walls are turned on with the “In 3D” button. Click a HEX or RGB value to copy it for a view filter.',
       noteSource: '<b>Where the colors come from.</b> Colors marked “reference” are taken exactly from your references: supply — the earthy palette '
         + 'from the legends (terracotta, grass green, mustard, ochre, brick), exhaust В1–В3 — from the screenshot. The rest are hand-picked in the same '
-        + 'character. Twelve colors per group are enough for one floor.',
+        + 'character. Twenty colors per group are ordered so that systems with neighboring numbers look as different as possible.',
       ariaCheck: 'Distinguishability check',
 
       titleSupply: 'Supply systems (П)', titleExhaust: 'Exhaust systems (В)',
       wallsRgb: ' · walls RGB {0}',
       chipSupply: 'supply {0}', chipExhaust: 'exhaust {0}',
       wallTitle: 'Supply {0}, exhaust {1}',
-      wall_standard: 'Pure', wall_soft: 'Soft', wall_dark: 'Dark', wall_darker: 'Darkest',
+      wall_standard: 'Pure', wall_signal: 'Signal', wall_soft: 'Soft', wall_muted: 'Muted', wall_dark: 'Dark', wall_black: 'Black', wall_grey: 'Grey',
+      thick_thin: 'Thin', thick_medium: 'Medium', thick_thick: 'Thick',
       badge: 'reference', badgeTitle: 'Color taken from your reference',
       copyHex: 'Copy HEX', copyRgb: 'Copy RGB',
       copied: 'Copied: {0}', copyFail: 'Could not copy',
       ductAria: 'Duct of system {0}',
 
       checkTitle: 'Distinguishability check',
-      checkText: 'We measure the difference between colors with the CIEDE2000 formula (ΔE) and show the worst pair in each group. '
+      checkText: 'We measure the difference between colors with the CIEDE2000 formula (ΔE) and show the worst pair for each scope. '
         + 'ΔE ≥ 20 — radically different, ≥ 15 — clearly different, ≥ 10 — the difference is noticeable when the colors sit side by side.',
-      thSystems: 'Systems', thWorst: 'Worst pair, ΔE', thPair: 'Which pair', thRating: 'Rating',
+      thSystems: 'Systems · scope', rowNeighbors: 'neighbor numbers', rowWindow: 'any 5 in a row', rowAll: 'all pairs', thWorst: 'Worst pair, ΔE', thPair: 'Which pair', thRating: 'Rating',
       pairAnd: ' and ',
       q20: 'excellent', q15: 'good', q10: 'noticeable', q0: 'weak',
 
@@ -71,14 +72,14 @@
 
     uk: {
       docTitle: 'Палітра систем вентиляції',
-      docDescription: 'Колірне кодування припливних і витяжних систем у BIM/CAD: по 12 кольорів на групу в стилі сигнальної палітри.',
+      docDescription: 'Колірне кодування припливних і витяжних систем у BIM/CAD: по 20 кольорів на групу в стилі сигнальної палітри.',
 
       ribbonShow: 'Показати', showAll: 'Усі', showSupply: 'Припливні', showExhaust: 'Витяжні',
       ribbonView: 'Вигляд', viewIso: 'Об’єм', viewPlan: 'План Revit',
-      ribbonWalls: 'Стінки', wallsIso: 'В об’ємі',
+      ribbonWalls: 'Стінки', wallsIso: 'В об’ємі', ribbonThick: 'Товщина',
       wallsIsoTitle: 'Підсвітити довгі ребра повітровода кольором стінок у вигляді «Об’єм»',
       ribbonExport: 'Експорт', ribbonLang: 'Мова',
-      ariaShow: 'Показати системи', ariaView: 'Вигляд повітровода', ariaWalls: 'Колір бічних стінок',
+      ariaShow: 'Показати системи', ariaView: 'Вигляд повітровода', ariaWalls: 'Колір бічних стінок', ariaThick: 'Товщина лінії стінок',
       ariaExport: 'Експорт', ariaLang: 'Мова інтерфейсу',
 
       sheetTitle: 'Колірна палітра систем вентиляції',
@@ -88,23 +89,24 @@
         + 'а у вигляді «Об’єм» стінки вмикаються кнопкою «В об’ємі». Натисніть на HEX або RGB, щоб скопіювати значення для фільтра виду.',
       noteSource: '<b>Звідки кольори.</b> Кольори з позначкою «еталон» взяті точно з ваших референсів: припливні — земляна палітра з легенд '
         + '(теракот, трав’яний, гірчичний, охра, цегляний), витяжні В1–В3 — зі скриншота. Решта підібрана вручну в тому самому характері. '
-        + 'Дванадцяти кольорів на групу вистачає на один поверх.',
+        + 'Двадцять кольорів на групу розставлені так, щоб системи з сусідніми номерами якомога сильніше відрізнялися.',
       ariaCheck: 'Перевірка розрізнюваності',
 
       titleSupply: 'Припливні системи (П)', titleExhaust: 'Витяжні системи (В)',
       wallsRgb: ' · стінки RGB {0}',
       chipSupply: 'припливні {0}', chipExhaust: 'витяжні {0}',
       wallTitle: 'Припливні {0}, витяжні {1}',
-      wall_standard: 'Чисті', wall_soft: 'Спокійні', wall_dark: 'Темні', wall_darker: 'Найтемніші',
+      wall_standard: 'Чисті', wall_signal: 'Сигнальні', wall_soft: 'Спокійні', wall_muted: 'Приглушені', wall_dark: 'Темні', wall_black: 'Чорні', wall_grey: 'Сірі',
+      thick_thin: 'Тонкі', thick_medium: 'Середні', thick_thick: 'Товсті',
       badge: 'еталон', badgeTitle: 'Колір узято з вашого референсу',
       copyHex: 'Скопіювати HEX', copyRgb: 'Скопіювати RGB',
       copied: 'Скопійовано: {0}', copyFail: 'Не вдалося скопіювати',
       ductAria: 'Повітровід системи {0}',
 
       checkTitle: 'Перевірка розрізнюваності',
-      checkText: 'Рахуємо різницю між кольорами за формулою CIEDE2000 (ΔE) і показуємо найгіршу пару в групі. '
+      checkText: 'Рахуємо різницю між кольорами за формулою CIEDE2000 (ΔE) і показуємо найгіршу пару для кожного діапазону. '
         + 'ΔE ≥ 20 — кольори кардинально різні, ≥ 15 — упевнено різні, ≥ 10 — різниця помітна, якщо кольори лежать поруч.',
-      thSystems: 'Системи', thWorst: 'Найгірша пара, ΔE', thPair: 'Яка пара', thRating: 'Оцінка',
+      thSystems: 'Системи · діапазон', rowNeighbors: 'сусідні номери', rowWindow: 'будь-які 5 поспіль', rowAll: 'усі пари', thWorst: 'Найгірша пара, ΔE', thPair: 'Яка пара', thRating: 'Оцінка',
       pairAnd: ' і ',
       q20: 'відмінно', q15: 'добре', q10: 'помітно', q0: 'слабко',
 
