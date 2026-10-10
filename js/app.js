@@ -140,12 +140,58 @@
       + '</svg>';
   }
 
+  /* ---------- трубы (кондиционирование, схема К1) ---------- */
+
+  // Труба в объёме: цилиндр вдоль оси a→b с контуром, бликом и тенью, хомутами и открытым торцом.
+  function pipeIsoSvg(s) {
+    var a = [52, 112], b = [188, 64];
+    var dx = b[0] - a[0], dy = b[1] - a[1], len = Math.hypot(dx, dy);
+    var ux = dx / len, uy = dy / len, nx = -uy, ny = ux;          // вдоль оси и перпендикуляр на экране
+    var ang = Math.atan2(dy, dx) * 180 / Math.PI, r = 10.5;
+    function at(f, off) { return [a[0] + dx * f + nx * off, a[1] + dy * f + ny * off]; }
+    function ln(p, q, color, w) {
+      return '<line x1="' + p[0].toFixed(1) + '" y1="' + p[1].toFixed(1) + '" x2="' + q[0].toFixed(1) + '" y2="' + q[1].toFixed(1)
+        + '" stroke="' + color + '" stroke-width="' + w + '"/>';
+    }
+    function ell(c, rx, ry, fill, stroke) {
+      return '<ellipse cx="' + c[0].toFixed(1) + '" cy="' + c[1].toFixed(1) + '" rx="' + rx + '" ry="' + ry + '" transform="rotate('
+        + ang.toFixed(1) + ' ' + c[0].toFixed(1) + ' ' + c[1].toFixed(1) + ')" fill="' + fill + '" stroke="' + stroke + '" stroke-width=".9"/>';
+    }
+    var out = '<svg class="duct" viewBox="0 0 240 140" role="img" aria-label="' + t('pipeAria', s.code) + '">';
+    out += ell(b, 4, r, s.hex, '#1d1d1d');                         // дальний торец
+    out += ln(a, b, '#1d1d1d', (2 * r + 1.6).toFixed(1));          // контур
+    out += ln(a, b, s.hex, (2 * r - 0.4).toFixed(1));              // тело = цвет системы
+    out += ln(at(0, r * 0.52), at(1, r * 0.52), shade(s.hex, -0.2), 5);   // тень снизу
+    out += ln(at(0, -r * 0.5), at(1, -r * 0.5), shade(s.hex, 0.25), 3.4); // блик сверху
+    // хомуты
+    [0.3, 0.66].forEach(function (f) { out += ell(at(f, 0), 2.4, r + 1.6, '#c9c9c9', '#1d1d1d'); });
+    // ближний открытый торец с тёмным отверстием
+    out += ell(a, 4, r, shade(s.hex, 0.12), '#1d1d1d') + ell(a, 2.2, r - 3.6, '#2b2b2b', '#1d1d1d');
+    // марка в кружке с выноской
+    var anchor = at(0.8, -2);
+    out += '<line x1="' + anchor[0].toFixed(1) + '" y1="' + anchor[1].toFixed(1) + '" x2="199" y2="34" stroke="#1d1d1d" stroke-width=".8"/>'
+      + '<circle cx="213" cy="30" r="14" fill="#fff" stroke="#1d1d1d" stroke-width=".9"/>'
+      + '<text x="213" y="34" text-anchor="middle" class="duct__tag duct__tag--iso">' + s.code + '</text>';
+    return out + '</svg>';
+  }
+
+  // Труба в плане: узкая полоса цвета системы с хомутами, номер и выноска.
+  function pipePlanSvg(s) {
+    var x1 = 34, x2 = 206, y1 = 45, y2 = 67;
+    return '<svg class="duct" viewBox="0 0 240 100" role="img" aria-label="' + t('pipeAria', s.code) + '">'
+      + '<rect x="' + x1 + '" y="' + y1 + '" width="' + (x2 - x1) + '" height="' + (y2 - y1) + '" fill="' + s.hex + '" stroke="#1d1d1d" stroke-width="1.2"/>'
+      + flangesSvg(x1, x2, y1, y2, 4, 4, 3, 3, 1)
+      + '<line x1="127" y1="26" x2="115" y2="58" stroke="#111" stroke-width="1"/>'
+      + '<text x="128" y="21" text-anchor="middle" class="duct__tag duct__tag--plan">' + s.code + '</text>'
+      + '</svg>';
+  }
+
   /* ---------- карточки и группы ---------- */
 
   function cardHtml(s) {
     var rgb = s.rgb.join(', ');
     return '<article class="card" data-kind="' + s.kind + '">'
-      + (view === 'iso' ? ductIsoSvg(s) : ductSvg(s))
+      + (s.kind === 'pipes' ? (view === 'iso' ? pipeIsoSvg(s) : pipePlanSvg(s)) : (view === 'iso' ? ductIsoSvg(s) : ductSvg(s)))
       + '<div class="card__meta">'
       + '<div class="card__name"><b>' + s.code + '</b> ' + nm(s)
       + (s.reference ? ' <span class="badge" title="' + t('badgeTitle') + '">' + t('badge') + '</span>' : '') + '</div>'
@@ -162,13 +208,16 @@
     }).join('') + '</div>';
   }
 
+  var TITLE_KEY = { supply: 'titleSupply', exhaust: 'titleExhaust', pipes: 'titlePipes' };
+
   function render() {
     var out = '';
-    ['supply', 'exhaust'].forEach(function (kind) {
+    ['supply', 'exhaust', 'pipes'].forEach(function (kind) {
       var list = P.SYSTEMS[kind], pre = P.PREFIX[kind];
+      var range = kind === 'pipes' ? list[0].code + '–' + list[list.length - 1].code : pre + '1–' + pre + list.length;
       out += '<section class="group group--' + kind + '" data-kind="' + kind + '">'
-        + '<h2 class="group__title">' + t(kind === 'supply' ? 'titleSupply' : 'titleExhaust') + ' <small>' + pre + '1–' + pre + list.length
-        + (view === 'plan' ? t('wallsRgb', rgbText(wallOf(kind))) : '') + '</small></h2>'
+        + '<h2 class="group__title">' + t(TITLE_KEY[kind]) + ' <small>' + range
+        + (view === 'plan' && kind !== 'pipes' ? t('wallsRgb', rgbText(wallOf(kind))) : '') + '</small></h2>'
         + swatchTable(list);
       out += '<div class="grid">' + list.map(cardHtml).join('') + '</div>';
       out += '</section>';
@@ -194,15 +243,18 @@
 
   function renderCheck() {
     var rows = '';
-    ['supply', 'exhaust'].forEach(function (kind) {
+    ['supply', 'exhaust', 'pipes'].forEach(function (kind) {
       var list = P.SYSTEMS[kind], pre = P.PREFIX[kind];
-      var scopes = [[t('rowNeighbors'), 2], [t('rowWindow'), 5], [t('rowAll'), list.length]];
+      var label = kind === 'pipes' ? list[0].code + '–' + list[list.length - 1].code : pre + '1–' + pre + list.length;
+      // у труб всего несколько цветов — смотрим только все пары
+      var scopes = kind === 'pipes' ? [[t('rowAll'), list.length]]
+        : [[t('rowNeighbors'), 2], [t('rowWindow'), 5], [t('rowAll'), list.length]];
       scopes.forEach(function (sc) {
         var st = P.windowStats(list, sc[1]);
         var names = st.pair.map(function (code) {
           return code + ' ' + nm(list.filter(function (s) { return s.code === code; })[0]);
         });
-        rows += '<tr><th>' + pre + '1–' + pre + list.length + ' · ' + sc[0] + '</th>'
+        rows += '<tr><th>' + label + ' · ' + sc[0] + '</th>'
           + '<td><b>' + st.min.toFixed(1) + '</b></td>'
           + '<td>' + names[0] + t('pairAnd') + names[1] + '</td>'
           + '<td class="q">' + quality(st.min) + '</td></tr>';
@@ -266,7 +318,7 @@
   }
 
   function allSystems() {
-    return P.SYSTEMS.supply.concat(P.SYSTEMS.exhaust);
+    return P.SYSTEMS.supply.concat(P.SYSTEMS.exhaust, P.SYSTEMS.pipes);
   }
 
   function download(name, mime, text) {
@@ -281,9 +333,9 @@
   function exportCsv() {
     var head = t('csvHead');
     var rows = allSystems().map(function (s) {
-      var w = P.hexToRgb(wallOf(s.kind));
-      return [s.code, s.kind === 'supply' ? t('kindSupply') : t('kindExhaust'), nm(s),
-        s.rgb[0], s.rgb[1], s.rgb[2], s.hex, w[0], w[1], w[2]].join(';');
+      var w = s.kind === 'pipes' ? ['', '', ''] : P.hexToRgb(wallOf(s.kind));
+      var kind = { supply: 'kindSupply', exhaust: 'kindExhaust', pipes: 'kindPipes' }[s.kind];
+      return [s.code, t(kind), nm(s), s.rgb[0], s.rgb[1], s.rgb[2], s.hex, w[0], w[1], w[2]].join(';');
     });
     // BOM, чтобы Excel правильно открыл кириллицу
     download('hvac-palette.csv', 'text/csv;charset=utf-8', '\ufeff' + [head.join(';')].concat(rows).join('\r\n'));
@@ -292,7 +344,7 @@
   function exportJson() {
     var data = allSystems().map(function (s) {
       return { system: s.code, kind: s.kind, color_name: nm(s), rgb: s.rgb, hex: s.hex,
-        wall_rgb: P.hexToRgb(wallOf(s.kind)), wall_hex: wallOf(s.kind) };
+        wall_rgb: s.kind === 'pipes' ? null : P.hexToRgb(wallOf(s.kind)), wall_hex: s.kind === 'pipes' ? null : wallOf(s.kind) };
     });
     download('hvac-palette.json', 'application/json', JSON.stringify(data, null, 2));
   }

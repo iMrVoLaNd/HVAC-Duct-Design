@@ -20,7 +20,7 @@
       docTitle: 'Ventilation System Color Palette',
       docDescription: 'Color coding of supply and exhaust systems in BIM/CAD: 20 colors per group in a signal-palette style.',
 
-      ribbonShow: 'Show', showAll: 'All', showSupply: 'Supply', showExhaust: 'Exhaust',
+      ribbonShow: 'Show', showAll: 'All', showSupply: 'Supply', showExhaust: 'Exhaust', showPipes: 'Pipes',
       ribbonView: 'View', viewIso: '3D', viewPlan: 'Revit plan',
       ribbonWalls: 'Walls', wallsIso: 'In 3D', ribbonThick: 'Thickness',
       wallsIsoTitle: 'Highlight the long edges of the duct with the wall color in the 3D view',
@@ -36,9 +36,11 @@
       noteSource: '<b>Where the colors come from.</b> Colors marked “reference” are taken exactly from your references: supply — the earthy palette '
         + 'from the legends (terracotta, grass green, mustard, ochre, brick), exhaust В1–В3 — from the screenshot. The rest are hand-picked in the same '
         + 'character. Twenty colors per group are ordered so that systems with neighboring numbers look as different as possible.',
+      notePipes: '<b>Pipes.</b> The piping colors are taken from your K1 air-conditioning scheme and assigned as you asked: '
+        + 'gas — green, liquid — purple, drain — orange, recirculation — pink. Codes К1.1–К1.4 follow the scheme and are easy to rename.',
       ariaCheck: 'Distinguishability check',
 
-      titleSupply: 'Supply systems (П)', titleExhaust: 'Exhaust systems (В)',
+      titleSupply: 'Supply systems (П)', titleExhaust: 'Exhaust systems (В)', titlePipes: 'Air-conditioning piping (К)',
       wallsRgb: ' · walls RGB {0}',
       chipSupply: 'supply {0}', chipExhaust: 'exhaust {0}',
       wallTitle: 'Supply {0}, exhaust {1}',
@@ -47,7 +49,7 @@
       badge: 'reference', badgeTitle: 'Color taken from your reference',
       copyHex: 'Copy HEX', copyRgb: 'Copy RGB',
       copied: 'Copied: {0}', copyFail: 'Could not copy',
-      ductAria: 'Duct of system {0}',
+      ductAria: 'Duct of system {0}', pipeAria: 'Pipe {0}',
 
       checkTitle: 'Distinguishability check',
       checkText: 'We measure the difference between colors with the CIEDE2000 formula (ΔE) and show the worst pair for each scope. '
@@ -67,14 +69,14 @@
       tbNext: 'Next stage', tbNextVal: 'Supply-exhaust (ПВ)',
 
       csvHead: ['System', 'Group', 'Color', 'R', 'G', 'B', 'HEX', 'Wall R', 'Wall G', 'Wall B'],
-      kindSupply: 'Supply', kindExhaust: 'Exhaust'
+      kindSupply: 'Supply', kindExhaust: 'Exhaust', kindPipes: 'Piping'
     },
 
     uk: {
       docTitle: 'Палітра систем вентиляції',
       docDescription: 'Колірне кодування припливних і витяжних систем у BIM/CAD: по 20 кольорів на групу в стилі сигнальної палітри.',
 
-      ribbonShow: 'Показати', showAll: 'Усі', showSupply: 'Припливні', showExhaust: 'Витяжні',
+      ribbonShow: 'Показати', showAll: 'Усі', showSupply: 'Припливні', showExhaust: 'Витяжні', showPipes: 'Трубопроводи',
       ribbonView: 'Вигляд', viewIso: 'Об’єм', viewPlan: 'План Revit',
       ribbonWalls: 'Стінки', wallsIso: 'В об’ємі', ribbonThick: 'Товщина',
       wallsIsoTitle: 'Підсвітити довгі ребра повітровода кольором стінок у вигляді «Об’єм»',
@@ -90,9 +92,11 @@
       noteSource: '<b>Звідки кольори.</b> Кольори з позначкою «еталон» взяті точно з ваших референсів: припливні — земляна палітра з легенд '
         + '(теракот, трав’яний, гірчичний, охра, цегляний), витяжні В1–В3 — зі скриншота. Решта підібрана вручну в тому самому характері. '
         + 'Двадцять кольорів на групу розставлені так, щоб системи з сусідніми номерами якомога сильніше відрізнялися.',
+      notePipes: '<b>Трубопроводи.</b> Кольори труб зняті з вашої схеми кондиціонування К1 і розподілені так, як ви просили: '
+        + 'газ — зелений, рідина — фіолетовий, дренаж — оранжевий, рециркуляція — рожевий. Коди К1.1–К1.4 відповідають схемі, їх легко перейменувати.',
       ariaCheck: 'Перевірка розрізнюваності',
 
-      titleSupply: 'Припливні системи (П)', titleExhaust: 'Витяжні системи (В)',
+      titleSupply: 'Припливні системи (П)', titleExhaust: 'Витяжні системи (В)', titlePipes: 'Трубопроводи кондиціонування (К)',
       wallsRgb: ' · стінки RGB {0}',
       chipSupply: 'припливні {0}', chipExhaust: 'витяжні {0}',
       wallTitle: 'Припливні {0}, витяжні {1}',
@@ -101,7 +105,7 @@
       badge: 'еталон', badgeTitle: 'Колір узято з вашого референсу',
       copyHex: 'Скопіювати HEX', copyRgb: 'Скопіювати RGB',
       copied: 'Скопійовано: {0}', copyFail: 'Не вдалося скопіювати',
-      ductAria: 'Повітровід системи {0}',
+      ductAria: 'Повітровід системи {0}', pipeAria: 'Труба {0}',
 
       checkTitle: 'Перевірка розрізнюваності',
       checkText: 'Рахуємо різницю між кольорами за формулою CIEDE2000 (ΔE) і показуємо найгіршу пару для кожного діапазону. '
@@ -121,7 +125,7 @@
       tbNext: 'Наступний етап', tbNextVal: 'Припливно-витяжні (ПВ)',
 
       csvHead: ['Система', 'Група', 'Колір', 'R', 'G', 'B', 'HEX', 'Стінки R', 'Стінки G', 'Стінки B'],
-      kindSupply: 'Припливна', kindExhaust: 'Витяжна'
+      kindSupply: 'Припливна', kindExhaust: 'Витяжна', kindPipes: 'Трубопровід'
     }
   };
 

@@ -128,6 +128,16 @@
     ]
   };
 
+  // Трубопроводы системы кондиционирования (схема К1). Цвета сняты со схемы-референса: фиолетовый, розовый
+  // и бирюзово-зелёный — плашки легенды, оранжевый — освещённая сторона трубы (в легенде у него плашки нет).
+  // Назначение: газ — зелёный, жидкость — фиолетовый, дренаж — оранжевый, рециркуляция — розовый.
+  var PIPES = [
+    { code: 'К1.1', name: 'Gas · green',           nameUk: 'Газ · зелений',          hex: '#02807D', ref: true },
+    { code: 'К1.2', name: 'Liquid · purple',       nameUk: 'Рідина · фіолетовий',    hex: '#750286', ref: true },
+    { code: 'К1.3', name: 'Drain · orange',        nameUk: 'Дренаж · оранжевий',     hex: '#DF750E', ref: true },
+    { code: 'К1.4', name: 'Recirculation · pink',  nameUk: 'Рециркуляція · рожевий', hex: '#FA007D', ref: true }
+  ];
+
   // Цвет боковых стенок воздуховода. По ГОСТ приточные — красные, вытяжные — синие, поэтому первые пять вариантов —
   // разные оттенки красного и синего: от чистых (стандарт Revit) до приглушённых и тёмных. Чёрные и серые — для случая,
   // когда группу различают по легенде, а не по цвету линии. Чем темнее оттенок, тем «тяжелее» он выглядит на плане.
@@ -147,7 +157,7 @@
     { id: 'medium', w: 1.8 },
     { id: 'thick',  w: 3.0 }
   ];
-  var PREFIX = { supply: 'П', exhaust: 'В' };
+  var PREFIX = { supply: 'П', exhaust: 'В', pipes: 'К' };
 
   function buildGroup(kind) {
     return COLORS[kind].map(function (c, i) {
@@ -166,7 +176,16 @@
     });
   }
 
-  var SYSTEMS = { supply: buildGroup('supply'), exhaust: buildGroup('exhaust') };
+  // Трубопроводы: коды (К1.1…) заданы вручную, а не по номеру.
+  function buildPipes() {
+    return PIPES.map(function (c, i) {
+      var rgb = hexToRgb(c.hex);
+      return { kind: 'pipes', n: i + 1, code: c.code, name: c.name, nameUk: c.nameUk, reference: !!c.ref,
+        hex: c.hex, rgb: rgb, lab: rgbToLab(rgb) };
+    });
+  }
+
+  var SYSTEMS = { supply: buildGroup('supply'), exhaust: buildGroup('exhaust'), pipes: buildPipes() };
 
   /* ---------- проверка различимости ---------- */
 
@@ -183,7 +202,7 @@
   }
 
   var api = {
-    COLORS: COLORS, WALL_PRESETS: WALL_PRESETS, WALL_WIDTHS: WALL_WIDTHS, PREFIX: PREFIX, SYSTEMS: SYSTEMS,
+    COLORS: COLORS, PIPES: PIPES, WALL_PRESETS: WALL_PRESETS, WALL_WIDTHS: WALL_WIDTHS, PREFIX: PREFIX, SYSTEMS: SYSTEMS,
     hexToRgb: hexToRgb, rgbToHex: rgbToHex, rgbToLab: rgbToLab, deltaE: deltaE,
     windowStats: windowStats
   };
