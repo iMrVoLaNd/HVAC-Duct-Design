@@ -4,16 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Палитра систем вентиляции</title>
-  <meta name="description" content="Цветовое кодирование приточных и вытяжных систем в BIM/CAD: по 40 цветов на группу с проверкой различимости соседних систем.">
+  <meta name="description" content="Цветовое кодирование приточных и вытяжных систем в BIM/CAD: по 40 цветов на группу в стиле сигнальной палитры.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:ital,wght@0,400;0,700;1,400;1,700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-
-<!-- Общие определения заливок (штриховки) для всех SVG на странице -->
-<svg id="defs" width="0" height="0" style="position:absolute" aria-hidden="true"><defs></defs></svg>
 
 <header class="ribbon">
   <div class="ribbon__inner">
@@ -42,9 +39,10 @@
       (<span class="chip chip--wall chip--supply">красный 255·0·0</span> у приточных,
       <span class="chip chip--wall chip--exhaust">синий 0·0·255</span> у вытяжных),
       внутри — заливка цветом системы. Нажмите на HEX или RGB, чтобы скопировать значение для фильтра вида.</p>
-    <p><b>Почему цвета повторяются.</b> Глаз уверенно различает на чертеже около десяти цветов. Поэтому системы 1–10 — десять
-      максимально разных оттенков, а 11–40 повторяют их с другой заливкой:
-      <b>П11 = П1 + штриховка</b>, П21 = П1 + сетка, П31 = П1 + точки.</p>
+    <p><b>Откуда цвета.</b> Первые цвета каждой группы — ровно плашки со скриншота-эталона (помечены «эталон»):
+      П1, П2, П3, П4 и В1, В2, В3. Остальные подобраны в том же матовом сигнальном стиле так, чтобы каждый следующий
+      как можно сильнее отличался от уже выбранных. Поэтому <b>первые 10 систем — самые контрастные</b>, а дальше
+      цвета неизбежно становятся ближе друг к другу: на одном этаже лучше держаться в пределах 10–12 систем.</p>
   </section>
 
   <section class="check" id="check" aria-label="Проверка различимости"></section>

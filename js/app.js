@@ -4,36 +4,6 @@
   var P = window.Palette;
   var KIND_TITLE = { supply: 'Приточные системы (П)', exhaust: 'Вытяжные системы (В)' };
 
-  /* ---------- общие заливки (штриховки) ---------- */
-
-  function fillRef(s) {
-    return s.pattern === 'solid' ? s.hex : 'url(#fill-' + s.kind + '-' + s.n + ')';
-  }
-
-  function buildDefs() {
-    var defs = document.querySelector('#defs defs');
-    var html = '';
-    ['supply', 'exhaust'].forEach(function (kind) {
-      P.SYSTEMS[kind].forEach(function (s) {
-        var id = 'fill-' + kind + '-' + s.n;
-        if (s.pattern === 'diag') {
-          html += '<pattern id="' + id + '" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">'
-            + '<rect width="7" height="7" fill="' + s.hex + '"/>'
-            + '<line x1="0" y1="0" x2="0" y2="7" stroke="#fff" stroke-width="1.8" stroke-opacity=".8"/></pattern>';
-        } else if (s.pattern === 'cross') {
-          html += '<pattern id="' + id + '" width="8" height="8" patternUnits="userSpaceOnUse">'
-            + '<rect width="8" height="8" fill="' + s.hex + '"/>'
-            + '<path d="M0 .5H8M.5 0V8" stroke="#fff" stroke-width="1.4" stroke-opacity=".8" fill="none"/></pattern>';
-        } else if (s.pattern === 'dots') {
-          html += '<pattern id="' + id + '" width="7" height="7" patternUnits="userSpaceOnUse">'
-            + '<rect width="7" height="7" fill="' + s.hex + '"/>'
-            + '<circle cx="3.5" cy="3.5" r="1.5" fill="#fff" fill-opacity=".85"/></pattern>';
-        }
-      });
-    });
-    defs.innerHTML = html;
-  }
-
   /* ---------- рисование воздуховода в плане ---------- */
 
   // Карточка: воздуховод 300x200 в плане — заливка, боковые стенки, фланцы, осевая, стрелка потока, марка.
@@ -44,7 +14,7 @@
       ? 'M70 21H170M162 16L170 21L162 26'
       : 'M170 21H70M78 16L70 21L78 26';
     return '<svg class="duct" viewBox="0 0 240 112" role="img" aria-label="Воздуховод системы ' + s.code + '">'
-      + '<rect x="' + x1 + '" y="' + y1 + '" width="' + (x2 - x1) + '" height="' + (y2 - y1) + '" fill="' + fillRef(s) + '"/>'
+      + '<rect x="' + x1 + '" y="' + y1 + '" width="' + (x2 - x1) + '" height="' + (y2 - y1) + '" fill="' + s.hex + '"/>'
       + '<path d="M' + x1 + ' ' + y1 + 'H' + x2 + 'M' + x1 + ' ' + y2 + 'H' + x2 + '" stroke="' + s.wall + '" stroke-width="4.5" fill="none"/>'
       // фланцы
       + '<rect x="' + (x1 - 6) + '" y="' + (y1 - 6) + '" width="6" height="' + (y2 - y1 + 12) + '" fill="#fff" stroke="#111" stroke-width="1"/>'
@@ -69,11 +39,26 @@
     return '<article class="card" data-kind="' + s.kind + '">'
       + ductSvg(s)
       + '<div class="card__meta">'
-      + '<div class="card__name"><b>' + s.code + '</b> ' + s.name + '</div>'
+      + '<div class="card__name"><b>' + s.code + '</b> ' + s.name
+      + (s.reference ? ' <span class="badge" title="Цвет взят со скриншота-эталона">эталон</span>' : '') + '</div>'
       + '<div class="card__vals">'
       + '<button type="button" class="val" data-copy="' + s.hex + '" title="Скопировать HEX">' + s.hex + '</button>'
       + '<button type="button" class="val" data-copy="' + rgb + '" title="Скопировать RGB">' + s.rgb.join(' · ') + '</button>'
       + '</div></div></article>';
+  }
+
+  var BLOCK_NOTE = [
+    'самые непохожие друг на друга',
+    'различимы, но ближе друг к другу',
+    'различимы только при сравнении рядом',
+    'различимы только при сравнении рядом'
+  ];
+
+  // Таблица цветового кодирования — квадраты с кодом, как внизу скриншота-эталона.
+  function swatchTable(list) {
+    return '<div class="swatches">' + list.map(function (s) {
+      return '<div class="swatch"><i style="background:' + s.hex + '"></i><span>' + s.code + '</span></div>';
+    }).join('') + '</div>';
   }
 
   function render() {
@@ -82,12 +67,13 @@
       var list = P.SYSTEMS[kind], pre = P.PREFIX[kind];
       out += '<section class="group group--' + kind + '" data-kind="' + kind + '">'
         + '<h2 class="group__title">' + KIND_TITLE[kind] + ' <small>' + pre + '1–' + pre + list.length
-        + ' · стенки RGB ' + P.hexToRgb(P.WALL[kind]).join('·') + '</small></h2>';
-      P.TIERS.forEach(function (tier, t) {
-        var a = t * 10 + 1, b = t * 10 + 10;
-        out += '<h3 class="tier">' + pre + a + '–' + pre + b + ' <span>' + tier.label + '</span></h3>'
+        + ' · стенки RGB ' + P.hexToRgb(P.WALL[kind]).join('·') + '</small></h2>'
+        + swatchTable(list);
+      for (var t = 0; t * 10 < list.length; t++) {
+        out += '<h3 class="tier">' + pre + (t * 10 + 1) + '–' + pre + (t * 10 + 10)
+          + ' <span>' + BLOCK_NOTE[t] + '</span></h3>'
           + '<div class="grid">' + list.slice(t * 10, t * 10 + 10).map(cardHtml).join('') + '</div>';
-      });
+      }
       out += '</section>';
     });
     document.getElementById('groups').innerHTML = out;
@@ -98,24 +84,27 @@
   function quality(de) {
     if (de >= 20) return 'отлично';
     if (de >= 15) return 'хорошо';
-    return 'на пределе';
+    if (de >= 10) return 'заметно';
+    return 'слабо';
   }
 
   function renderCheck() {
-    var rows = ['supply', 'exhaust'].map(function (kind) {
-      var st = P.windowStats(P.SYSTEMS[kind], 10);
-      var pre = P.PREFIX[kind];
-      return '<tr><th>' + pre + '</th>'
-        + '<td><b>' + st.min.toFixed(1) + '</b></td>'
-        + '<td>' + st.pair[0] + ' и ' + st.pair[1] + '</td>'
-        + '<td class="q">' + quality(st.min) + '</td></tr>';
-    }).join('');
+    var rows = '';
+    ['supply', 'exhaust'].forEach(function (kind) {
+      var list = P.SYSTEMS[kind], pre = P.PREFIX[kind];
+      [[pre + '1–' + pre + '10', P.windowStats(list.slice(0, 10), 10)],
+       [pre + '1–' + pre + list.length + ', любые 10 подряд', P.windowStats(list, 10)]].forEach(function (r) {
+        rows += '<tr><th>' + r[0] + '</th>'
+          + '<td><b>' + r[1].min.toFixed(1) + '</b></td>'
+          + '<td>' + r[1].pair[0] + ' и ' + r[1].pair[1] + '</td>'
+          + '<td class="q">' + quality(r[1].min) + '</td></tr>';
+      });
+    });
     document.getElementById('check').innerHTML =
       '<h2 class="group__title">Проверка различимости</h2>'
-      + '<p>Для каждых 10 систем подряд (П1…П10, П2…П11 и т. д.) считаем разницу цветов по формуле CIEDE2000 (ΔE). '
-      + 'Если заливка разная (сплошная / штриховка / сетка / точки), системы различимы по рисунку. '
-      + 'ΔE ≥ 15 — цвета уверенно разные, ≥ 20 — кардинально.</p>'
-      + '<table class="stats"><thead><tr><th>Группа</th><th>Худшая пара, ΔE</th><th>Какая пара</th><th>Оценка</th></tr></thead>'
+      + '<p>Считаем разницу между цветами по формуле CIEDE2000 (ΔE) и показываем худшую пару. '
+      + 'ΔE ≥ 20 — цвета кардинально разные, ≥ 15 — уверенно разные, ≥ 10 — разница заметна, если цвета лежат рядом.</p>'
+      + '<table class="stats"><thead><tr><th>Системы</th><th>Худшая пара, ΔE</th><th>Какая пара</th><th>Оценка</th></tr></thead>'
       + '<tbody>' + rows + '</tbody></table>';
   }
 
@@ -135,7 +124,7 @@
     var svg = '<svg viewBox="0 0 740 ' + (top * 2 + items.length * pitch) + '" class="floor__svg" role="img" aria-label="Параллельные воздуховоды">';
     items.forEach(function (s, i) {
       var y = top + i * pitch;
-      svg += '<rect x="' + x1 + '" y="' + y + '" width="' + (x2 - x1) + '" height="' + h + '" fill="' + fillRef(s) + '"/>'
+      svg += '<rect x="' + x1 + '" y="' + y + '" width="' + (x2 - x1) + '" height="' + h + '" fill="' + s.hex + '"/>'
         + '<path d="M' + x1 + ' ' + y + 'H' + x2 + 'M' + x1 + ' ' + (y + h) + 'H' + x2 + '" stroke="' + s.wall + '" stroke-width="2.4" fill="none"/>'
         + '<rect x="' + (x1 - 3) + '" y="' + (y - 2) + '" width="3" height="' + (h + 4) + '" fill="#fff" stroke="#111" stroke-width=".8"/>'
         + '<rect x="' + x2 + '" y="' + (y - 2) + '" width="3" height="' + (h + 4) + '" fill="#fff" stroke="#111" stroke-width=".8"/>'
@@ -173,10 +162,6 @@
     return P.SYSTEMS.supply.concat(P.SYSTEMS.exhaust);
   }
 
-  function patternLabel(id) {
-    return P.TIERS.filter(function (t) { return t.pattern === id; })[0].label;
-  }
-
   function download(name, mime, text) {
     var blob = new Blob([text], { type: mime });
     var a = document.createElement('a');
@@ -187,11 +172,11 @@
   }
 
   function exportCsv() {
-    var head = ['Система', 'Группа', 'Цвет', 'R', 'G', 'B', 'HEX', 'Заливка', 'Стенки R', 'Стенки G', 'Стенки B'];
+    var head = ['Система', 'Группа', 'Цвет', 'R', 'G', 'B', 'HEX', 'Стенки R', 'Стенки G', 'Стенки B'];
     var rows = allSystems().map(function (s) {
       var w = P.hexToRgb(s.wall);
       return [s.code, s.kind === 'supply' ? 'Приточная' : 'Вытяжная', s.name,
-        s.rgb[0], s.rgb[1], s.rgb[2], s.hex, patternLabel(s.pattern), w[0], w[1], w[2]].join(';');
+        s.rgb[0], s.rgb[1], s.rgb[2], s.hex, w[0], w[1], w[2]].join(';');
     });
     // BOM, чтобы Excel правильно открыл кириллицу
     download('hvac-palette.csv', 'text/csv;charset=utf-8', '\ufeff' + [head.join(';')].concat(rows).join('\r\n'));
@@ -200,7 +185,7 @@
   function exportJson() {
     var data = allSystems().map(function (s) {
       return { system: s.code, kind: s.kind, color_name: s.name, rgb: s.rgb, hex: s.hex,
-        pattern: s.pattern, wall_rgb: P.hexToRgb(s.wall) };
+        wall_rgb: P.hexToRgb(s.wall) };
     });
     download('hvac-palette.json', 'application/json', JSON.stringify(data, null, 2));
   }
@@ -237,7 +222,6 @@
     document.getElementById('dl-json').addEventListener('click', exportJson);
   }
 
-  buildDefs();
   render();
   renderCheck();
   renderFloor();
