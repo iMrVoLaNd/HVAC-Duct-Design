@@ -2,9 +2,12 @@
   'use strict';
 
   var P = window.Palette;
-  var KIND_TITLE = { supply: 'Приточные системы (П)', exhaust: 'Вытяжные системы (В)' };
+  var t = window.I18N.t;
+  // Название цвета на текущем языке.
+  function nm(s) { return window.I18N.getLang() === 'uk' ? s.nameUk : s.name; }
   var view = 'iso';           // 'iso' — объём, как на референсах; 'plan' — план Revit со стенками
   var filter = 'all';
+  var isoWalls = false;       // подсвечивать ли боковые стенки (длинные рёбра) в объёмном виде
   var wallId = 'dark';        // вариант цвета боковых стенок (см. Palette.WALL_PRESETS)
 
   function wallPreset() {
@@ -18,16 +21,16 @@
     var root = document.documentElement.style;
     root.setProperty('--supply', wallOf('supply'));
     root.setProperty('--exhaust', wallOf('exhaust'));
-    document.getElementById('chip-supply').textContent = 'приточные ' + rgbText(wallOf('supply'));
-    document.getElementById('chip-exhaust').textContent = 'вытяжные ' + rgbText(wallOf('exhaust'));
+    document.getElementById('chip-supply').textContent = t('chipSupply', rgbText(wallOf('supply')));
+    document.getElementById('chip-exhaust').textContent = t('chipExhaust', rgbText(wallOf('exhaust')));
   }
 
   function renderWallButtons() {
     document.getElementById('walls').innerHTML = P.WALL_PRESETS.map(function (w) {
       return '<button type="button" data-wall="' + w.id + '"' + (w.id === wallId ? ' class="is-active"' : '')
-        + ' title="Приточные ' + w.supply + ', вытяжные ' + w.exhaust + '">'
+        + ' title="' + t('wallTitle', w.supply, w.exhaust) + '">'
         + '<i class="dot" style="background:' + w.supply + '"></i><i class="dot" style="background:' + w.exhaust + '"></i>'
-        + w.name + '</button>';
+        + t('wall_' + w.id) + '</button>';
     }).join('');
   }
 
@@ -49,7 +52,7 @@
   function ductIsoSvg(s) {
     var A = [60, 118], L = [132, -44], H = [0, -34], D = [-28, -15], T = [-5, 1.7];
     var AH = add(A, H), AL = add(A, L), ALH = add(AL, H);
-    var out = '<svg class="duct" viewBox="0 0 240 140" role="img" aria-label="Воздуховод системы ' + s.code + '">';
+    var out = '<svg class="duct" viewBox="0 0 240 140" role="img" aria-label="' + t('ductAria', s.code) + '">';
 
     // подвес
     var hang = add(add(AH, L, 0.5), D, 0.5);
@@ -58,6 +61,15 @@
     // боковая и верхняя грани
     out += poly([A, AL, ALH, AH], s.hex);
     out += poly([AH, ALH, add(ALH, D), add(AH, D)], shade(s.hex, 0.14));
+
+    // боковые стенки: длинные рёбра воздуховода цветом группы (если включено)
+    if (isoWalls) {
+      var edge = function (p, q) {
+        return '<line x1="' + p[0].toFixed(1) + '" y1="' + p[1].toFixed(1) + '" x2="' + q[0].toFixed(1) + '" y2="' + q[1].toFixed(1)
+          + '" stroke="' + wallOf(s.kind) + '" stroke-width="1.9" stroke-linecap="round"/>';
+      };
+      out += edge(A, AL) + edge(AH, ALH) + edge(add(AH, D), add(ALH, D));
+    }
 
     // стыки (рёбра жёсткости) — две полосы поперёк воздуховода
     [0.36, 0.68].forEach(function (u) {
@@ -101,7 +113,7 @@
     var arrow = supply
       ? 'M70 21H170M162 16L170 21L162 26'
       : 'M170 21H70M78 16L70 21L78 26';
-    return '<svg class="duct" viewBox="0 0 240 112" role="img" aria-label="Воздуховод системы ' + s.code + '">'
+    return '<svg class="duct" viewBox="0 0 240 112" role="img" aria-label="' + t('ductAria', s.code) + '">'
       + '<rect x="' + x1 + '" y="' + y1 + '" width="' + (x2 - x1) + '" height="' + (y2 - y1) + '" fill="' + s.hex + '"/>'
       + '<path d="M' + x1 + ' ' + y1 + 'H' + x2 + 'M' + x1 + ' ' + y2 + 'H' + x2 + '" stroke="' + wallOf(s.kind) + '" stroke-width="1.5" fill="none"/>'
       // фланцы
@@ -127,11 +139,11 @@
     return '<article class="card" data-kind="' + s.kind + '">'
       + (view === 'iso' ? ductIsoSvg(s) : ductSvg(s))
       + '<div class="card__meta">'
-      + '<div class="card__name"><b>' + s.code + '</b> ' + s.name
-      + (s.reference ? ' <span class="badge" title="Цвет взят из вашего референса">эталон</span>' : '') + '</div>'
+      + '<div class="card__name"><b>' + s.code + '</b> ' + nm(s)
+      + (s.reference ? ' <span class="badge" title="' + t('badgeTitle') + '">' + t('badge') + '</span>' : '') + '</div>'
       + '<div class="card__vals">'
-      + '<button type="button" class="val" data-copy="' + s.hex + '" title="Скопировать HEX">' + s.hex + '</button>'
-      + '<button type="button" class="val" data-copy="' + rgb + '" title="Скопировать RGB">' + s.rgb.join(' · ') + '</button>'
+      + '<button type="button" class="val" data-copy="' + s.hex + '" title="' + t('copyHex') + '">' + s.hex + '</button>'
+      + '<button type="button" class="val" data-copy="' + rgb + '" title="' + t('copyRgb') + '">' + s.rgb.join(' · ') + '</button>'
       + '</div></div></article>';
   }
 
@@ -147,8 +159,8 @@
     ['supply', 'exhaust'].forEach(function (kind) {
       var list = P.SYSTEMS[kind], pre = P.PREFIX[kind];
       out += '<section class="group group--' + kind + '" data-kind="' + kind + '">'
-        + '<h2 class="group__title">' + KIND_TITLE[kind] + ' <small>' + pre + '1–' + pre + list.length
-        + (view === 'plan' ? ' · стенки RGB ' + rgbText(wallOf(kind)) : '') + '</small></h2>'
+        + '<h2 class="group__title">' + t(kind === 'supply' ? 'titleSupply' : 'titleExhaust') + ' <small>' + pre + '1–' + pre + list.length
+        + (view === 'plan' ? t('wallsRgb', rgbText(wallOf(kind))) : '') + '</small></h2>'
         + swatchTable(list);
       out += '<div class="grid">' + list.map(cardHtml).join('') + '</div>';
       out += '</section>';
@@ -166,10 +178,10 @@
   /* ---------- проверка различимости ---------- */
 
   function quality(de) {
-    if (de >= 20) return 'отлично';
-    if (de >= 15) return 'хорошо';
-    if (de >= 10) return 'заметно';
-    return 'слабо';
+    if (de >= 20) return t('q20');
+    if (de >= 15) return t('q15');
+    if (de >= 10) return t('q10');
+    return t('q0');
   }
 
   function renderCheck() {
@@ -178,18 +190,18 @@
       var list = P.SYSTEMS[kind], pre = P.PREFIX[kind];
       var st = P.windowStats(list, list.length);
       var names = st.pair.map(function (code) {
-        return code + ' ' + list.filter(function (s) { return s.code === code; })[0].name;
+        return code + ' ' + nm(list.filter(function (s) { return s.code === code; })[0]);
       });
       rows += '<tr><th>' + pre + '1–' + pre + list.length + '</th>'
         + '<td><b>' + st.min.toFixed(1) + '</b></td>'
-        + '<td>' + names[0] + ' и ' + names[1] + '</td>'
+        + '<td>' + names[0] + t('pairAnd') + names[1] + '</td>'
         + '<td class="q">' + quality(st.min) + '</td></tr>';
     });
     document.getElementById('check').innerHTML =
-      '<h2 class="group__title">Проверка различимости</h2>'
-      + '<p>Считаем разницу между цветами по формуле CIEDE2000 (ΔE) и показываем худшую пару в группе. '
-      + 'ΔE ≥ 20 — цвета кардинально разные, ≥ 15 — уверенно разные, ≥ 10 — разница заметна, если цвета лежат рядом.</p>'
-      + '<table class="stats"><thead><tr><th>Системы</th><th>Худшая пара, ΔE</th><th>Какая пара</th><th>Оценка</th></tr></thead>'
+      '<h2 class="group__title">' + t('checkTitle') + '</h2>'
+      + '<p>' + t('checkText') + '</p>'
+      + '<table class="stats"><thead><tr><th>' + t('thSystems') + '</th><th>' + t('thWorst') + '</th><th>' + t('thPair')
+      + '</th><th>' + t('thRating') + '</th></tr></thead>'
       + '<tbody>' + rows + '</tbody></table>';
   }
 
@@ -206,7 +218,7 @@
       if (kind !== 'supply') items.push(P.SYSTEMS.exhaust[i]);
     }
     var pitch = 22, h = 14, x1 = 64, x2 = 676, top = 14;
-    var svg = '<svg viewBox="0 0 740 ' + (top * 2 + items.length * pitch) + '" class="floor__svg" role="img" aria-label="Параллельные воздуховоды">';
+    var svg = '<svg viewBox="0 0 740 ' + (top * 2 + items.length * pitch) + '" class="floor__svg" role="img" aria-label="' + t('floorAria') + '">';
     items.forEach(function (s, i) {
       var y = top + i * pitch;
       svg += '<rect x="' + x1 + '" y="' + y + '" width="' + (x2 - x1) + '" height="' + h + '" fill="' + s.hex + '"/>'
@@ -257,10 +269,10 @@
   }
 
   function exportCsv() {
-    var head = ['Система', 'Группа', 'Цвет', 'R', 'G', 'B', 'HEX', 'Стенки R', 'Стенки G', 'Стенки B'];
+    var head = t('csvHead');
     var rows = allSystems().map(function (s) {
       var w = P.hexToRgb(wallOf(s.kind));
-      return [s.code, s.kind === 'supply' ? 'Приточная' : 'Вытяжная', s.name,
+      return [s.code, s.kind === 'supply' ? t('kindSupply') : t('kindExhaust'), nm(s),
         s.rgb[0], s.rgb[1], s.rgb[2], s.hex, w[0], w[1], w[2]].join(';');
     });
     // BOM, чтобы Excel правильно открыл кириллицу
@@ -269,7 +281,7 @@
 
   function exportJson() {
     var data = allSystems().map(function (s) {
-      return { system: s.code, kind: s.kind, color_name: s.name, rgb: s.rgb, hex: s.hex,
+      return { system: s.code, kind: s.kind, color_name: nm(s), rgb: s.rgb, hex: s.hex,
         wall_rgb: P.hexToRgb(wallOf(s.kind)), wall_hex: wallOf(s.kind) };
     });
     download('hvac-palette.json', 'application/json', JSON.stringify(data, null, 2));
@@ -282,8 +294,8 @@
       var b = e.target.closest('[data-copy]');
       if (!b) return;
       copyText(b.dataset.copy).then(
-        function () { toast('Скопировано: ' + b.dataset.copy); },
-        function () { toast('Не удалось скопировать'); });
+        function () { toast(t('copied', b.dataset.copy)); },
+        function () { toast(t('copyFail')); });
     });
 
     document.getElementById('filter').addEventListener('click', function (e) {
@@ -312,6 +324,19 @@
       renderFloor();
     });
 
+    document.getElementById('iso-walls').addEventListener('click', function () {
+      isoWalls = !isoWalls;
+      this.setAttribute('aria-pressed', String(isoWalls));
+      render();
+    });
+
+    document.getElementById('lang').addEventListener('click', function (e) {
+      var b = e.target.closest('button');
+      if (!b) return;
+      window.I18N.setLang(b.dataset.lang);
+      renderAll();
+    });
+
     document.getElementById('floor-kind').addEventListener('click', function (e) {
       var b = e.target.closest('button');
       if (!b) return;
@@ -323,10 +348,19 @@
     document.getElementById('dl-json').addEventListener('click', exportJson);
   }
 
-  renderWallButtons();
-  applyWalls();
-  render();
-  renderCheck();
-  renderFloor();
+  // Всё, что зависит от языка, перерисовываем целиком.
+  function renderAll() {
+    window.I18N.applyStatic();
+    document.querySelectorAll('#lang button').forEach(function (x) {
+      x.classList.toggle('is-active', x.dataset.lang === window.I18N.getLang());
+    });
+    renderWallButtons();
+    applyWalls();
+    render();
+    renderCheck();
+    renderFloor();
+  }
+
+  renderAll();
   bind();
 })();

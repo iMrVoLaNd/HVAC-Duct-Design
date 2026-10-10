@@ -43,7 +43,7 @@ body {
   flex-wrap: wrap;
   gap: 8px 28px;
 }
-.ribbon__group { display: flex; align-items: center; gap: 8px; }
+.ribbon__group { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .ribbon__label { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-soft); }
 
 .seg { display: inline-flex; border: 1px solid #aab3bc; border-radius: 3px; overflow: hidden; background: #fff; }
@@ -75,6 +75,7 @@ body {
   cursor: pointer;
 }
 .btn:hover { background: #eef3fb; }
+.btn[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #fff; }
 
 button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
@@ -293,6 +294,8 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .swatches { grid-template-columns: repeat(6, minmax(0, 1fr)); }
   .ribbon { position: static; }
+  .ribbon__inner { gap: 8px 16px; }
+  .seg button { padding: 6px 9px; font-size: 13px; }
   .stats { font-size: 13px; }
   .stats th, .stats td { padding: 4px 6px; }
 }
