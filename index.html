@@ -29,6 +29,10 @@
         <button type="button" data-view="plan">План Revit</button>
       </div>
     </div>
+    <div class="ribbon__group" role="group" aria-label="Цвет боковых стенок">
+      <span class="ribbon__label">Стенки</span>
+      <div class="seg" id="walls"></div>
+    </div>
     <div class="ribbon__group" role="group" aria-label="Экспорт">
       <span class="ribbon__label">Экспорт</span>
       <button type="button" class="btn" id="dl-csv">CSV</button>
@@ -42,10 +46,10 @@
   <p class="sheet__subtitle">Рекомендуемое кодирование воздуховодов (BIM / CAD)</p>
 
   <section class="note">
-    <p><b>Как читать.</b> Воздуховод показан в плане, как в Revit: боковые стенки — стандартный цвет группы
-      (<span class="chip chip--wall chip--supply">красный 255·0·0</span> у приточных,
-      <span class="chip chip--wall chip--exhaust">синий 0·0·255</span> у вытяжных),
-      внутри — заливка цветом системы. Нажмите на HEX или RGB, чтобы скопировать значение для фильтра вида.</p>
+    <p><b>Как читать.</b> В виде «План Revit» боковые стенки воздуховода окрашены в цвет группы
+      (<span class="chip chip--wall chip--supply" id="chip-supply"></span> у приточных,
+      <span class="chip chip--wall chip--exhaust" id="chip-exhaust"></span> у вытяжных),
+      внутри — заливка цветом системы. Оттенок стенок переключается в ленте («Стенки»). Нажмите на HEX или RGB, чтобы скопировать значение для фильтра вида.</p>
     <p><b>Откуда цвета.</b> Цвета с пометкой «эталон» взяты точно из ваших референсов:
       приточные — земляная палитра из легенд (терракот, травяной, горчичный, охра, кирпичный), вытяжные В1–В3 — со скриншота. Остальные подобраны вручную в том же характере.
       Двенадцати цветов на группу хватает на один этаж.</p>

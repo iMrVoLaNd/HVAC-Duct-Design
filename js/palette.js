@@ -111,8 +111,15 @@
     ]
   };
 
-  // Цвет боковых стенок воздуховода — «стандартные» красный и синий.
-  var WALL = { supply: '#FF0000', exhaust: '#0000FF' };
+  // Цвет боковых стенок воздуховода: приточные — красные, вытяжные — синие. Варианты оттенка:
+  // чистые «стандартные» цвета Revit выбиваются из спокойной палитры, а спокойные оттенки сливаются
+  // с заливками (красный с П9, синий с В1), поэтому лучший компромисс — тёмные оттенки (темнее любой заливки).
+  var WALL_PRESETS = [
+    { id: 'standard', name: 'Чистые',       supply: '#FF0000', exhaust: '#0000FF' },
+    { id: 'soft',     name: 'Спокойные',    supply: '#C0392B', exhaust: '#1F4FD8' },
+    { id: 'dark',     name: 'Тёмные',       supply: '#6B1A14', exhaust: '#0B2257' },
+    { id: 'darker',   name: 'Самые тёмные', supply: '#5A140F', exhaust: '#081B45' }
+  ];
   var PREFIX = { supply: 'П', exhaust: 'В' };
 
   function buildGroup(kind) {
@@ -124,7 +131,6 @@
         code: PREFIX[kind] + (i + 1),
         name: c.name,
         reference: !!c.ref,
-        wall: WALL[kind],
         hex: c.hex,
         rgb: rgb,
         lab: rgbToLab(rgb)
@@ -149,7 +155,7 @@
   }
 
   var api = {
-    COLORS: COLORS, WALL: WALL, PREFIX: PREFIX, SYSTEMS: SYSTEMS,
+    COLORS: COLORS, WALL_PRESETS: WALL_PRESETS, PREFIX: PREFIX, SYSTEMS: SYSTEMS,
     hexToRgb: hexToRgb, rgbToHex: rgbToHex, rgbToLab: rgbToLab, deltaE: deltaE,
     windowStats: windowStats
   };

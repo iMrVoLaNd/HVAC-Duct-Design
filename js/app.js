@@ -5,6 +5,31 @@
   var KIND_TITLE = { supply: 'Приточные системы (П)', exhaust: 'Вытяжные системы (В)' };
   var view = 'iso';           // 'iso' — объём, как на референсах; 'plan' — план Revit со стенками
   var filter = 'all';
+  var wallId = 'dark';        // вариант цвета боковых стенок (см. Palette.WALL_PRESETS)
+
+  function wallPreset() {
+    return P.WALL_PRESETS.filter(function (w) { return w.id === wallId; })[0];
+  }
+  function wallOf(kind) { return wallPreset()[kind]; }
+  function rgbText(hex) { return P.hexToRgb(hex).join('·'); }
+
+  // Применить выбранный цвет стенок: CSS-переменные (рамка заголовков, плашки) и подписи.
+  function applyWalls() {
+    var root = document.documentElement.style;
+    root.setProperty('--supply', wallOf('supply'));
+    root.setProperty('--exhaust', wallOf('exhaust'));
+    document.getElementById('chip-supply').textContent = 'приточные ' + rgbText(wallOf('supply'));
+    document.getElementById('chip-exhaust').textContent = 'вытяжные ' + rgbText(wallOf('exhaust'));
+  }
+
+  function renderWallButtons() {
+    document.getElementById('walls').innerHTML = P.WALL_PRESETS.map(function (w) {
+      return '<button type="button" data-wall="' + w.id + '"' + (w.id === wallId ? ' class="is-active"' : '')
+        + ' title="Приточные ' + w.supply + ', вытяжные ' + w.exhaust + '">'
+        + '<i class="dot" style="background:' + w.supply + '"></i><i class="dot" style="background:' + w.exhaust + '"></i>'
+        + w.name + '</button>';
+    }).join('');
+  }
 
   /* ---------- воздуховод в объёме (как BIM «Shaded with Edges» на референсах) ---------- */
 
@@ -78,7 +103,7 @@
       : 'M170 21H70M78 16L70 21L78 26';
     return '<svg class="duct" viewBox="0 0 240 112" role="img" aria-label="Воздуховод системы ' + s.code + '">'
       + '<rect x="' + x1 + '" y="' + y1 + '" width="' + (x2 - x1) + '" height="' + (y2 - y1) + '" fill="' + s.hex + '"/>'
-      + '<path d="M' + x1 + ' ' + y1 + 'H' + x2 + 'M' + x1 + ' ' + y2 + 'H' + x2 + '" stroke="' + s.wall + '" stroke-width="1.5" fill="none"/>'
+      + '<path d="M' + x1 + ' ' + y1 + 'H' + x2 + 'M' + x1 + ' ' + y2 + 'H' + x2 + '" stroke="' + wallOf(s.kind) + '" stroke-width="1.5" fill="none"/>'
       // фланцы
       + '<rect x="' + (x1 - 6) + '" y="' + (y1 - 6) + '" width="6" height="' + (y2 - y1 + 12) + '" fill="#fff" stroke="#111" stroke-width="1"/>'
       + '<rect x="' + x2 + '" y="' + (y1 - 6) + '" width="6" height="' + (y2 - y1 + 12) + '" fill="#fff" stroke="#111" stroke-width="1"/>'
@@ -123,7 +148,7 @@
       var list = P.SYSTEMS[kind], pre = P.PREFIX[kind];
       out += '<section class="group group--' + kind + '" data-kind="' + kind + '">'
         + '<h2 class="group__title">' + KIND_TITLE[kind] + ' <small>' + pre + '1–' + pre + list.length
-        + (view === 'plan' ? ' · стенки RGB ' + P.hexToRgb(P.WALL[kind]).join('·') : '') + '</small></h2>'
+        + (view === 'plan' ? ' · стенки RGB ' + rgbText(wallOf(kind)) : '') + '</small></h2>'
         + swatchTable(list);
       out += '<div class="grid">' + list.map(cardHtml).join('') + '</div>';
       out += '</section>';
@@ -185,7 +210,7 @@
     items.forEach(function (s, i) {
       var y = top + i * pitch;
       svg += '<rect x="' + x1 + '" y="' + y + '" width="' + (x2 - x1) + '" height="' + h + '" fill="' + s.hex + '"/>'
-        + '<path d="M' + x1 + ' ' + y + 'H' + x2 + 'M' + x1 + ' ' + (y + h) + 'H' + x2 + '" stroke="' + s.wall + '" stroke-width="1.2" fill="none"/>'
+        + '<path d="M' + x1 + ' ' + y + 'H' + x2 + 'M' + x1 + ' ' + (y + h) + 'H' + x2 + '" stroke="' + wallOf(s.kind) + '" stroke-width="1.2" fill="none"/>'
         + '<rect x="' + (x1 - 3) + '" y="' + (y - 2) + '" width="3" height="' + (h + 4) + '" fill="#fff" stroke="#111" stroke-width=".8"/>'
         + '<rect x="' + x2 + '" y="' + (y - 2) + '" width="3" height="' + (h + 4) + '" fill="#fff" stroke="#111" stroke-width=".8"/>'
         + '<text x="' + (x1 - 10) + '" y="' + (y + h - 2) + '" text-anchor="end" class="floor__lbl">' + s.code + '</text>'
@@ -234,7 +259,7 @@
   function exportCsv() {
     var head = ['Система', 'Группа', 'Цвет', 'R', 'G', 'B', 'HEX', 'Стенки R', 'Стенки G', 'Стенки B'];
     var rows = allSystems().map(function (s) {
-      var w = P.hexToRgb(s.wall);
+      var w = P.hexToRgb(wallOf(s.kind));
       return [s.code, s.kind === 'supply' ? 'Приточная' : 'Вытяжная', s.name,
         s.rgb[0], s.rgb[1], s.rgb[2], s.hex, w[0], w[1], w[2]].join(';');
     });
@@ -245,7 +270,7 @@
   function exportJson() {
     var data = allSystems().map(function (s) {
       return { system: s.code, kind: s.kind, color_name: s.name, rgb: s.rgb, hex: s.hex,
-        wall_rgb: P.hexToRgb(s.wall) };
+        wall_rgb: P.hexToRgb(wallOf(s.kind)), wall_hex: wallOf(s.kind) };
     });
     download('hvac-palette.json', 'application/json', JSON.stringify(data, null, 2));
   }
@@ -277,6 +302,16 @@
       render();
     });
 
+    document.getElementById('walls').addEventListener('click', function (e) {
+      var b = e.target.closest('button');
+      if (!b) return;
+      wallId = b.dataset.wall;
+      this.querySelectorAll('button').forEach(function (x) { x.classList.toggle('is-active', x === b); });
+      applyWalls();
+      render();
+      renderFloor();
+    });
+
     document.getElementById('floor-kind').addEventListener('click', function (e) {
       var b = e.target.closest('button');
       if (!b) return;
@@ -288,6 +323,8 @@
     document.getElementById('dl-json').addEventListener('click', exportJson);
   }
 
+  renderWallButtons();
+  applyWalls();
   render();
   renderCheck();
   renderFloor();
