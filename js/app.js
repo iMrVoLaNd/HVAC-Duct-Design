@@ -8,14 +8,14 @@
 
   // Карточка: воздуховод 300x200 в плане — заливка, боковые стенки, фланцы, осевая, стрелка потока, марка.
   function ductSvg(s) {
-    var x1 = 34, x2 = 206, y1 = 34, y2 = 76, ym = 55;
+    var x1 = 34, x2 = 206, y1 = 31, y2 = 79, ym = 55;
     var supply = s.kind === 'supply';
     var arrow = supply
       ? 'M70 21H170M162 16L170 21L162 26'
       : 'M170 21H70M78 16L70 21L78 26';
     return '<svg class="duct" viewBox="0 0 240 112" role="img" aria-label="Воздуховод системы ' + s.code + '">'
       + '<rect x="' + x1 + '" y="' + y1 + '" width="' + (x2 - x1) + '" height="' + (y2 - y1) + '" fill="' + s.hex + '"/>'
-      + '<path d="M' + x1 + ' ' + y1 + 'H' + x2 + 'M' + x1 + ' ' + y2 + 'H' + x2 + '" stroke="' + s.wall + '" stroke-width="4.5" fill="none"/>'
+      + '<path d="M' + x1 + ' ' + y1 + 'H' + x2 + 'M' + x1 + ' ' + y2 + 'H' + x2 + '" stroke="' + s.wall + '" stroke-width="1.5" fill="none"/>'
       // фланцы
       + '<rect x="' + (x1 - 6) + '" y="' + (y1 - 6) + '" width="6" height="' + (y2 - y1 + 12) + '" fill="#fff" stroke="#111" stroke-width="1"/>'
       + '<rect x="' + x2 + '" y="' + (y1 - 6) + '" width="6" height="' + (y2 - y1 + 12) + '" fill="#fff" stroke="#111" stroke-width="1"/>'
@@ -125,7 +125,7 @@
     items.forEach(function (s, i) {
       var y = top + i * pitch;
       svg += '<rect x="' + x1 + '" y="' + y + '" width="' + (x2 - x1) + '" height="' + h + '" fill="' + s.hex + '"/>'
-        + '<path d="M' + x1 + ' ' + y + 'H' + x2 + 'M' + x1 + ' ' + (y + h) + 'H' + x2 + '" stroke="' + s.wall + '" stroke-width="2.4" fill="none"/>'
+        + '<path d="M' + x1 + ' ' + y + 'H' + x2 + 'M' + x1 + ' ' + (y + h) + 'H' + x2 + '" stroke="' + s.wall + '" stroke-width="1.2" fill="none"/>'
         + '<rect x="' + (x1 - 3) + '" y="' + (y - 2) + '" width="3" height="' + (h + 4) + '" fill="#fff" stroke="#111" stroke-width=".8"/>'
         + '<rect x="' + x2 + '" y="' + (y - 2) + '" width="3" height="' + (h + 4) + '" fill="#fff" stroke="#111" stroke-width=".8"/>'
         + '<text x="' + (x1 - 10) + '" y="' + (y + h - 2) + '" text-anchor="end" class="floor__lbl">' + s.code + '</text>'
