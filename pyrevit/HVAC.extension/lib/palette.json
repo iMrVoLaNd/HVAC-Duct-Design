@@ -1,0 +1,523 @@
+{
+  "_comment": "Сгенерировано tools/export-palette-json.js из js/palette.js. Не правьте руками.",
+  "parameter": "ADSK_Система_Имя",
+  "systems": [
+    {
+      "name": "П1",
+      "kind": "supply",
+      "color_name": "Охристо-помаранчевий",
+      "rgb": [
+        227,
+        124,
+        33
+      ]
+    },
+    {
+      "name": "П2",
+      "kind": "supply",
+      "color_name": "Листяно-зелений",
+      "rgb": [
+        78,
+        125,
+        58
+      ]
+    },
+    {
+      "name": "П3",
+      "kind": "supply",
+      "color_name": "Гірчично-жовтий",
+      "rgb": [
+        203,
+        164,
+        83
+      ]
+    },
+    {
+      "name": "П4",
+      "kind": "supply",
+      "color_name": "Оливково-зелений",
+      "rgb": [
+        137,
+        176,
+        127
+      ]
+    },
+    {
+      "name": "П5",
+      "kind": "supply",
+      "color_name": "Іржавий",
+      "rgb": [
+        166,
+        75,
+        42
+      ]
+    },
+    {
+      "name": "П6",
+      "kind": "supply",
+      "color_name": "Світло-жовтий",
+      "rgb": [
+        242,
+        222,
+        123
+      ]
+    },
+    {
+      "name": "П7",
+      "kind": "supply",
+      "color_name": "Пильно-бузковий",
+      "rgb": [
+        143,
+        118,
+        148
+      ]
+    },
+    {
+      "name": "П8",
+      "kind": "supply",
+      "color_name": "Лососевий",
+      "rgb": [
+        217,
+        138,
+        108
+      ]
+    },
+    {
+      "name": "П9",
+      "kind": "supply",
+      "color_name": "Темно-зелений",
+      "rgb": [
+        49,
+        101,
+        73
+      ]
+    },
+    {
+      "name": "П10",
+      "kind": "supply",
+      "color_name": "Бурштиновий",
+      "rgb": [
+        240,
+        169,
+        27
+      ]
+    },
+    {
+      "name": "П11",
+      "kind": "supply",
+      "color_name": "Шавлієвий",
+      "rgb": [
+        124,
+        139,
+        90
+      ]
+    },
+    {
+      "name": "П12",
+      "kind": "supply",
+      "color_name": "Цегляно-помаранчевий",
+      "rgb": [
+        201,
+        78,
+        0
+      ]
+    },
+    {
+      "name": "П13",
+      "kind": "supply",
+      "color_name": "Лаймовий",
+      "rgb": [
+        163,
+        176,
+        74
+      ]
+    },
+    {
+      "name": "П14",
+      "kind": "supply",
+      "color_name": "Бордово-червоний",
+      "rgb": [
+        157,
+        56,
+        47
+      ]
+    },
+    {
+      "name": "П15",
+      "kind": "supply",
+      "color_name": "Персиковий",
+      "rgb": [
+        232,
+        168,
+        120
+      ]
+    },
+    {
+      "name": "П16",
+      "kind": "supply",
+      "color_name": "Оливково-хакі",
+      "rgb": [
+        89,
+        98,
+        50
+      ]
+    },
+    {
+      "name": "П17",
+      "kind": "supply",
+      "color_name": "Яскраво-жовтий",
+      "rgb": [
+        234,
+        194,
+        46
+      ]
+    },
+    {
+      "name": "П18",
+      "kind": "supply",
+      "color_name": "Трав’янисто-зелений",
+      "rgb": [
+        105,
+        157,
+        90
+      ]
+    },
+    {
+      "name": "П19",
+      "kind": "supply",
+      "color_name": "Теракотово-червоний",
+      "rgb": [
+        195,
+        91,
+        68
+      ]
+    },
+    {
+      "name": "П20",
+      "kind": "supply",
+      "color_name": "Піщаний",
+      "rgb": [
+        181,
+        155,
+        110
+      ]
+    },
+    {
+      "name": "В1",
+      "kind": "exhaust",
+      "color_name": "Тауп",
+      "rgb": [
+        125,
+        110,
+        99
+      ]
+    },
+    {
+      "name": "В2",
+      "kind": "exhaust",
+      "color_name": "Бірюзовий",
+      "rgb": [
+        31,
+        138,
+        138
+      ]
+    },
+    {
+      "name": "В3",
+      "kind": "exhaust",
+      "color_name": "Синій",
+      "rgb": [
+        1,
+        80,
+        183
+      ]
+    },
+    {
+      "name": "В4",
+      "kind": "exhaust",
+      "color_name": "Каштановий",
+      "rgb": [
+        107,
+        59,
+        21
+      ]
+    },
+    {
+      "name": "В5",
+      "kind": "exhaust",
+      "color_name": "Сірий",
+      "rgb": [
+        138,
+        148,
+        158
+      ]
+    },
+    {
+      "name": "В6",
+      "kind": "exhaust",
+      "color_name": "Темний синьо-зелений",
+      "rgb": [
+        47,
+        75,
+        70
+      ]
+    },
+    {
+      "name": "В7",
+      "kind": "exhaust",
+      "color_name": "Винно-коричневий",
+      "rgb": [
+        85,
+        60,
+        63
+      ]
+    },
+    {
+      "name": "В8",
+      "kind": "exhaust",
+      "color_name": "Блакитний",
+      "rgb": [
+        74,
+        154,
+        214
+      ]
+    },
+    {
+      "name": "В9",
+      "kind": "exhaust",
+      "color_name": "Оливковий",
+      "rgb": [
+        119,
+        120,
+        62
+      ]
+    },
+    {
+      "name": "В10",
+      "kind": "exhaust",
+      "color_name": "Морський",
+      "rgb": [
+        43,
+        111,
+        138
+      ]
+    },
+    {
+      "name": "В11",
+      "kind": "exhaust",
+      "color_name": "Кавовий",
+      "rgb": [
+        166,
+        120,
+        90
+      ]
+    },
+    {
+      "name": "В12",
+      "kind": "exhaust",
+      "color_name": "Темно-синій",
+      "rgb": [
+        31,
+        53,
+        99
+      ]
+    },
+    {
+      "name": "В13",
+      "kind": "exhaust",
+      "color_name": "Сіро-зелений",
+      "rgb": [
+        126,
+        145,
+        137
+      ]
+    },
+    {
+      "name": "В14",
+      "kind": "exhaust",
+      "color_name": "Темно-коричневий",
+      "rgb": [
+        67,
+        58,
+        45
+      ]
+    },
+    {
+      "name": "В15",
+      "kind": "exhaust",
+      "color_name": "Сливовий",
+      "rgb": [
+        107,
+        78,
+        113
+      ]
+    },
+    {
+      "name": "В16",
+      "kind": "exhaust",
+      "color_name": "Темний смарагд",
+      "rgb": [
+        23,
+        105,
+        91
+      ]
+    },
+    {
+      "name": "В17",
+      "kind": "exhaust",
+      "color_name": "Сталевий синій",
+      "rgb": [
+        92,
+        127,
+        163
+      ]
+    },
+    {
+      "name": "В18",
+      "kind": "exhaust",
+      "color_name": "Коричневий",
+      "rgb": [
+        138,
+        90,
+        60
+      ]
+    },
+    {
+      "name": "В19",
+      "kind": "exhaust",
+      "color_name": "Сланцевий",
+      "rgb": [
+        64,
+        83,
+        100
+      ]
+    },
+    {
+      "name": "В20",
+      "kind": "exhaust",
+      "color_name": "Теплий сірий",
+      "rgb": [
+        143,
+        138,
+        130
+      ]
+    }
+  ],
+  "wall_presets": [
+    {
+      "id": "standard",
+      "label": "Чисті (червоний / синій)",
+      "supply": [
+        255,
+        0,
+        0
+      ],
+      "exhaust": [
+        0,
+        0,
+        255
+      ]
+    },
+    {
+      "id": "signal",
+      "label": "Сигнальні",
+      "supply": [
+        227,
+        43,
+        31
+      ],
+      "exhaust": [
+        26,
+        63,
+        214
+      ]
+    },
+    {
+      "id": "soft",
+      "label": "Спокійні",
+      "supply": [
+        192,
+        57,
+        43
+      ],
+      "exhaust": [
+        31,
+        79,
+        216
+      ]
+    },
+    {
+      "id": "muted",
+      "label": "Приглушені",
+      "supply": [
+        163,
+        59,
+        48
+      ],
+      "exhaust": [
+        42,
+        79,
+        158
+      ]
+    },
+    {
+      "id": "dark",
+      "label": "Темні",
+      "supply": [
+        107,
+        26,
+        20
+      ],
+      "exhaust": [
+        11,
+        34,
+        87
+      ]
+    },
+    {
+      "id": "black",
+      "label": "Чорні",
+      "supply": [
+        21,
+        21,
+        21
+      ],
+      "exhaust": [
+        21,
+        21,
+        21
+      ]
+    },
+    {
+      "id": "grey",
+      "label": "Сірі",
+      "supply": [
+        110,
+        110,
+        110
+      ],
+      "exhaust": [
+        110,
+        110,
+        110
+      ]
+    }
+  ],
+  "wall_widths": [
+    {
+      "id": "thin",
+      "label": "Тонкі",
+      "revit_weight": 1
+    },
+    {
+      "id": "medium",
+      "label": "Середні",
+      "revit_weight": 2
+    },
+    {
+      "id": "thick",
+      "label": "Товсті",
+      "revit_weight": 4
+    }
+  ]
+}
