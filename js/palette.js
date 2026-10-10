@@ -81,33 +81,33 @@
     // Приточные — земляная палитра с референсов (BIM Shaded with Edges): терракот, зелёные, горчица, охра.
     // ref: true — цвет взят точно из легенды референса.
     supply: [
-      { name: 'Терракотово-красный', nameUk: 'Теракотово-червоний',  hex: '#C35B44', ref: true },   // П1
-      { name: 'Травянисто-зелёный', nameUk: 'Трав’янисто-зелений',   hex: '#699D5A', ref: true },   // П2
-      { name: 'Горчично-жёлтый', nameUk: 'Гірчично-жовтий',      hex: '#CBA453', ref: true },   // П3
-      { name: 'Охристо-оранжевый', nameUk: 'Охристо-помаранчевий',    hex: '#E37C21', ref: true },   // П4
-      { name: 'Оливково-зелёный', nameUk: 'Оливково-зелений',     hex: '#89B07F', ref: true },   // П5
-      { name: 'Кирпично-оранжевый', nameUk: 'Цегляно-помаранчевий',   hex: '#C94E00', ref: true },   // П6
-      { name: 'Тёмно-зелёный', nameUk: 'Темно-зелений',        hex: '#316549', ref: true },   // П7
-      { name: 'Ярко-жёлтый', nameUk: 'Яскраво-жовтий',          hex: '#EAC22E' },              // П8  (в референсе П8 ≈ П3, заменён)
-      { name: 'Бордово-красный', nameUk: 'Бордово-червоний',      hex: '#9D382F', ref: true },   // П9  (в референсе П9 ≈ П6, заменён)
-      { name: 'Оливково-хаки', nameUk: 'Оливково-хакі',        hex: '#596232', ref: true },   // П10
-      { name: 'Тёмно-коричневый', nameUk: 'Темно-коричневий',     hex: '#433A2D', ref: true },   // П11
-      { name: 'Тёмный сине-зелёный', nameUk: 'Темний синьо-зелений',  hex: '#2F4B46', ref: true }    // П12
+      { name: 'Terracotta red', nameUk: 'Теракотово-червоний',  hex: '#C35B44', ref: true },   // П1
+      { name: 'Grass green', nameUk: 'Трав’янисто-зелений',   hex: '#699D5A', ref: true },   // П2
+      { name: 'Mustard yellow', nameUk: 'Гірчично-жовтий',      hex: '#CBA453', ref: true },   // П3
+      { name: 'Ochre orange', nameUk: 'Охристо-помаранчевий',    hex: '#E37C21', ref: true },   // П4
+      { name: 'Olive green', nameUk: 'Оливково-зелений',     hex: '#89B07F', ref: true },   // П5
+      { name: 'Brick orange', nameUk: 'Цегляно-помаранчевий',   hex: '#C94E00', ref: true },   // П6
+      { name: 'Dark green', nameUk: 'Темно-зелений',        hex: '#316549', ref: true },   // П7
+      { name: 'Bright yellow', nameUk: 'Яскраво-жовтий',          hex: '#EAC22E' },              // П8  (в референсе П8 ≈ П3, заменён)
+      { name: 'Burgundy red', nameUk: 'Бордово-червоний',      hex: '#9D382F', ref: true },   // П9  (в референсе П9 ≈ П6, заменён)
+      { name: 'Olive khaki', nameUk: 'Оливково-хакі',        hex: '#596232', ref: true },   // П10
+      { name: 'Dark brown', nameUk: 'Темно-коричневий',     hex: '#433A2D', ref: true },   // П11
+      { name: 'Dark teal', nameUk: 'Темний синьо-зелений',  hex: '#2F4B46', ref: true }    // П12
     ],
     // Вытяжные — холодные, серые и коричневые; первые три — плашки с первого скриншота.
     exhaust: [
-      { name: 'Синий', nameUk: 'Синій',            hex: '#0150B7', ref: true },   // В1
-      { name: 'Сланцевый', nameUk: 'Сланцевий',        hex: '#405364', ref: true },   // В2
-      { name: 'Винно-коричневый', nameUk: 'Винно-коричневий', hex: '#553C3F', ref: true },   // В3
-      { name: 'Голубой', nameUk: 'Блакитний',          hex: '#4A9AD6' },
-      { name: 'Бирюзовый', nameUk: 'Бірюзовий',        hex: '#1F8A8A' },
-      { name: 'Серый', nameUk: 'Сірий',            hex: '#8A949E' },
-      { name: 'Коричневый', nameUk: 'Коричневий',       hex: '#8A5A3C' },
-      { name: 'Тёмно-синий', nameUk: 'Темно-синій',      hex: '#1F3563' },
-      { name: 'Оливковый', nameUk: 'Оливковий',        hex: '#77783E' },
-      { name: 'Тёмный изумруд', nameUk: 'Темний смарагд',   hex: '#17695B' },
-      { name: 'Песочный', nameUk: 'Піщаний',         hex: '#B59B6E' },
-      { name: 'Пыльная сирень', nameUk: 'Пильно-бузковий',   hex: '#8F7694' }
+      { name: 'Blue', nameUk: 'Синій',            hex: '#0150B7', ref: true },   // В1
+      { name: 'Slate', nameUk: 'Сланцевий',        hex: '#405364', ref: true },   // В2
+      { name: 'Wine brown', nameUk: 'Винно-коричневий', hex: '#553C3F', ref: true },   // В3
+      { name: 'Light blue', nameUk: 'Блакитний',          hex: '#4A9AD6' },
+      { name: 'Turquoise', nameUk: 'Бірюзовий',        hex: '#1F8A8A' },
+      { name: 'Grey', nameUk: 'Сірий',            hex: '#8A949E' },
+      { name: 'Brown', nameUk: 'Коричневий',       hex: '#8A5A3C' },
+      { name: 'Navy', nameUk: 'Темно-синій',      hex: '#1F3563' },
+      { name: 'Olive', nameUk: 'Оливковий',        hex: '#77783E' },
+      { name: 'Dark emerald', nameUk: 'Темний смарагд',   hex: '#17695B' },
+      { name: 'Sand', nameUk: 'Піщаний',         hex: '#B59B6E' },
+      { name: 'Dusty lilac', nameUk: 'Пильно-бузковий',   hex: '#8F7694' }
     ]
   };
 

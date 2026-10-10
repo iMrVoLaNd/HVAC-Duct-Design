@@ -1,5 +1,5 @@
 /*
- * Переводы интерфейса: русский (ru) и украинский (uk).
+ * Переводы интерфейса: украинский (uk) и английский (en).
  *
  * В index.html тексты помечены атрибутами:
  *   data-i18n="ключ"            — подставить текст
@@ -7,7 +7,7 @@
  *   data-i18n-attr="title:ключ;aria-label:ключ" — перевести атрибуты
  * В js/app.js — I18N.t('ключ', аргумент1, ...), где в тексте {0}, {1} — места для аргументов.
  *
- * Чтобы добавить язык — скопируйте блок ru и переведите значения.
+ * Чтобы добавить язык — скопируйте блок en и переведите значения.
  */
 (function (root) {
   'use strict';
@@ -16,57 +16,57 @@
   var CHIP_E = '<span class="chip chip--wall chip--exhaust" id="chip-exhaust"></span>';
 
   var DICT = {
-    ru: {
-      docTitle: 'Палитра систем вентиляции',
-      docDescription: 'Цветовое кодирование приточных и вытяжных систем в BIM/CAD: по 12 цветов на группу в стиле сигнальной палитры.',
+    en: {
+      docTitle: 'Ventilation System Color Palette',
+      docDescription: 'Color coding of supply and exhaust systems in BIM/CAD: 12 colors per group in a signal-palette style.',
 
-      ribbonShow: 'Показать', showAll: 'Все', showSupply: 'Приточные', showExhaust: 'Вытяжные',
-      ribbonView: 'Вид', viewIso: 'Объём', viewPlan: 'План Revit',
-      ribbonWalls: 'Стенки', wallsIso: 'В объёме',
-      wallsIsoTitle: 'Подсветить длинные рёбра воздуховода цветом стенок в виде «Объём»',
-      ribbonExport: 'Экспорт', ribbonLang: 'Язык',
-      ariaShow: 'Показать системы', ariaView: 'Вид воздуховода', ariaWalls: 'Цвет боковых стенок',
-      ariaExport: 'Экспорт', ariaLang: 'Язык интерфейса',
+      ribbonShow: 'Show', showAll: 'All', showSupply: 'Supply', showExhaust: 'Exhaust',
+      ribbonView: 'View', viewIso: '3D', viewPlan: 'Revit plan',
+      ribbonWalls: 'Walls', wallsIso: 'In 3D',
+      wallsIsoTitle: 'Highlight the long edges of the duct with the wall color in the 3D view',
+      ribbonExport: 'Export', ribbonLang: 'Language',
+      ariaShow: 'Show systems', ariaView: 'Duct view', ariaWalls: 'Side wall color',
+      ariaExport: 'Export', ariaLang: 'Interface language',
 
-      sheetTitle: 'Цветовая палитра систем вентиляции',
-      sheetSubtitle: 'Рекомендуемое кодирование воздуховодов (BIM / CAD)',
-      noteRead: '<b>Как читать.</b> В виде «План Revit» боковые стенки воздуховода окрашены в цвет группы (' + CHIP_S
-        + ' у приточных, ' + CHIP_E + ' у вытяжных), внутри — заливка цветом системы. Оттенок стенок переключается в ленте («Стенки»), '
-        + 'а в виде «Объём» стенки включаются кнопкой «В объёме». Нажмите на HEX или RGB, чтобы скопировать значение для фильтра вида.',
-      noteSource: '<b>Откуда цвета.</b> Цвета с пометкой «эталон» взяты точно из ваших референсов: приточные — земляная палитра из легенд '
-        + '(терракот, травяной, горчичный, охра, кирпичный), вытяжные В1–В3 — со скриншота. Остальные подобраны вручную в том же характере. '
-        + 'Двенадцати цветов на группу хватает на один этаж.',
-      ariaCheck: 'Проверка различимости',
+      sheetTitle: 'Ventilation System Color Palette',
+      sheetSubtitle: 'Recommended duct color coding (BIM / CAD)',
+      noteRead: '<b>How to read.</b> In the “Revit plan” view the duct side walls are drawn in the group color (' + CHIP_S
+        + ' for supply, ' + CHIP_E + ' for exhaust) and the fill inside is the system color. The wall shade is switched in the ribbon (“Walls”), '
+        + 'and in the 3D view the walls are turned on with the “In 3D” button. Click a HEX or RGB value to copy it for a view filter.',
+      noteSource: '<b>Where the colors come from.</b> Colors marked “reference” are taken exactly from your references: supply — the earthy palette '
+        + 'from the legends (terracotta, grass green, mustard, ochre, brick), exhaust В1–В3 — from the screenshot. The rest are hand-picked in the same '
+        + 'character. Twelve colors per group are enough for one floor.',
+      ariaCheck: 'Distinguishability check',
 
-      titleSupply: 'Приточные системы (П)', titleExhaust: 'Вытяжные системы (В)',
-      wallsRgb: ' · стенки RGB {0}',
-      chipSupply: 'приточные {0}', chipExhaust: 'вытяжные {0}',
-      wallTitle: 'Приточные {0}, вытяжные {1}',
-      wall_standard: 'Чистые', wall_soft: 'Спокойные', wall_dark: 'Тёмные', wall_darker: 'Самые тёмные',
-      badge: 'эталон', badgeTitle: 'Цвет взят из вашего референса',
-      copyHex: 'Скопировать HEX', copyRgb: 'Скопировать RGB',
-      copied: 'Скопировано: {0}', copyFail: 'Не удалось скопировать',
-      ductAria: 'Воздуховод системы {0}',
+      titleSupply: 'Supply systems (П)', titleExhaust: 'Exhaust systems (В)',
+      wallsRgb: ' · walls RGB {0}',
+      chipSupply: 'supply {0}', chipExhaust: 'exhaust {0}',
+      wallTitle: 'Supply {0}, exhaust {1}',
+      wall_standard: 'Pure', wall_soft: 'Soft', wall_dark: 'Dark', wall_darker: 'Darkest',
+      badge: 'reference', badgeTitle: 'Color taken from your reference',
+      copyHex: 'Copy HEX', copyRgb: 'Copy RGB',
+      copied: 'Copied: {0}', copyFail: 'Could not copy',
+      ductAria: 'Duct of system {0}',
 
-      checkTitle: 'Проверка различимости',
-      checkText: 'Считаем разницу между цветами по формуле CIEDE2000 (ΔE) и показываем худшую пару в группе. '
-        + 'ΔE ≥ 20 — цвета кардинально разные, ≥ 15 — уверенно разные, ≥ 10 — разница заметна, если цвета лежат рядом.',
-      thSystems: 'Системы', thWorst: 'Худшая пара, ΔE', thPair: 'Какая пара', thRating: 'Оценка',
-      pairAnd: ' и ',
-      q20: 'отлично', q15: 'хорошо', q10: 'заметно', q0: 'слабо',
+      checkTitle: 'Distinguishability check',
+      checkText: 'We measure the difference between colors with the CIEDE2000 formula (ΔE) and show the worst pair in each group. '
+        + 'ΔE ≥ 20 — radically different, ≥ 15 — clearly different, ≥ 10 — the difference is noticeable when the colors sit side by side.',
+      thSystems: 'Systems', thWorst: 'Worst pair, ΔE', thPair: 'Which pair', thRating: 'Rating',
+      pairAnd: ' and ',
+      q20: 'excellent', q15: 'good', q10: 'noticeable', q0: 'weak',
 
-      floorTitle: 'Проверка на «этаже»',
-      floorHint: 'Системы прокладываются рядом, как в коридоре. Двигайте ползунок и смотрите, не сливаются ли соседние.',
-      floorCount: 'Систем каждого вида:',
-      floorSupply: 'Приточные', floorExhaust: 'Вытяжные', floorBoth: 'Вместе',
-      floorAria: 'Параллельные воздуховоды',
+      floorTitle: 'Check on a “floor”',
+      floorHint: 'Systems run side by side, as in a corridor. Move the slider and see whether neighbors blend together.',
+      floorCount: 'Systems of each type:',
+      floorSupply: 'Supply', floorExhaust: 'Exhaust', floorBoth: 'Both',
+      floorAria: 'Parallel ducts',
 
-      tbProject: 'Проект', tbProjectVal: 'Палитра систем вентиляции',
-      tbSupply: 'Приточные', tbExhaust: 'Вытяжные',
-      tbNext: 'Следующий этап', tbNextVal: 'Приточно-вытяжные (ПВ)',
+      tbProject: 'Project', tbProjectVal: 'Ventilation system palette',
+      tbSupply: 'Supply', tbExhaust: 'Exhaust',
+      tbNext: 'Next stage', tbNextVal: 'Supply-exhaust (ПВ)',
 
-      csvHead: ['Система', 'Группа', 'Цвет', 'R', 'G', 'B', 'HEX', 'Стенки R', 'Стенки G', 'Стенки B'],
-      kindSupply: 'Приточная', kindExhaust: 'Вытяжная'
+      csvHead: ['System', 'Group', 'Color', 'R', 'G', 'B', 'HEX', 'Wall R', 'Wall G', 'Wall B'],
+      kindSupply: 'Supply', kindExhaust: 'Exhaust'
     },
 
     uk: {
@@ -131,7 +131,7 @@
 
   function t(key) {
     var v = DICT[lang][key];
-    if (v === undefined) v = DICT.ru[key];
+    if (v === undefined) v = DICT.en[key];
     if (typeof v !== 'string') return v === undefined ? key : v;
     var args = Array.prototype.slice.call(arguments, 1);
     return v.replace(/\{(\d+)\}/g, function (_, i) { return args[+i]; });

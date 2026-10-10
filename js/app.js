@@ -106,29 +106,28 @@
 
   /* ---------- воздуховод в плане (Revit: боковые стенки красные / синие) ---------- */
 
-  // Карточка: воздуховод 300x200 в плане — заливка, боковые стенки, фланцы, осевая, стрелка потока, марка.
+  // Фланцы: по краям (крупнее) и между секциями — белые прямоугольники с чёрным контуром, выступают за стенки.
+  // Как в плане Revit: воздуховод делится стыками на 5 секций.
+  function flangesSvg(x1, x2, y1, y2, endW, endOut, midW, midOut, stroke) {
+    var out = '', i;
+    function rect(cx, w, out_) {
+      return '<rect x="' + (cx - w / 2).toFixed(1) + '" y="' + (y1 - out_) + '" width="' + w + '" height="' + (y2 - y1 + 2 * out_)
+        + '" fill="#fff" stroke="#111" stroke-width="' + stroke + '"/>';
+    }
+    for (i = 1; i < 5; i++) out += rect(x1 + (x2 - x1) * i / 5, midW, midOut);
+    return out + rect(x1, endW, endOut) + rect(x2, endW, endOut);
+  }
+
+  // Карточка (план Revit): заливка цветом системы, боковые стенки, фланцы-стыки, номер системы и выноска.
   function ductSvg(s) {
-    var x1 = 34, x2 = 206, y1 = 31, y2 = 79, ym = 55;
-    var supply = s.kind === 'supply';
-    var arrow = supply
-      ? 'M70 21H170M162 16L170 21L162 26'
-      : 'M170 21H70M78 16L70 21L78 26';
-    return '<svg class="duct" viewBox="0 0 240 112" role="img" aria-label="' + t('ductAria', s.code) + '">'
+    var x1 = 34, x2 = 206, y1 = 34, y2 = 78;
+    return '<svg class="duct" viewBox="0 0 240 100" role="img" aria-label="' + t('ductAria', s.code) + '">'
       + '<rect x="' + x1 + '" y="' + y1 + '" width="' + (x2 - x1) + '" height="' + (y2 - y1) + '" fill="' + s.hex + '"/>'
-      + '<path d="M' + x1 + ' ' + y1 + 'H' + x2 + 'M' + x1 + ' ' + y2 + 'H' + x2 + '" stroke="' + wallOf(s.kind) + '" stroke-width="1.5" fill="none"/>'
-      // фланцы
-      + '<rect x="' + (x1 - 6) + '" y="' + (y1 - 6) + '" width="6" height="' + (y2 - y1 + 12) + '" fill="#fff" stroke="#111" stroke-width="1"/>'
-      + '<rect x="' + x2 + '" y="' + (y1 - 6) + '" width="6" height="' + (y2 - y1 + 12) + '" fill="#fff" stroke="#111" stroke-width="1"/>'
-      // осевая линия
-      + '<path d="M14 ' + ym + 'H226" stroke="#111" stroke-width=".8" stroke-dasharray="14 3 2 3" fill="none"/>'
-      // направление потока
-      + '<path d="' + arrow + '" stroke="#111" stroke-width="1.2" fill="none"/>'
-      // марка системы
-      + '<rect x="104" y="44" width="32" height="22" rx="2" fill="#fff" stroke="#111" stroke-width="1"/>'
-      + '<text x="120" y="60" text-anchor="middle" class="duct__tag">' + s.code + '</text>'
-      // размерная линия
-      + '<path d="M' + x1 + ' 95H' + x2 + 'M' + x1 + ' 90V100M' + x2 + ' 90V100" stroke="#111" stroke-width=".8" fill="none"/>'
-      + '<text x="120" y="108" text-anchor="middle" class="duct__dim">L = 2000</text>'
+      + '<path d="M' + x1 + ' ' + y1 + 'H' + x2 + 'M' + x1 + ' ' + y2 + 'H' + x2 + '" stroke="' + wallOf(s.kind) + '" stroke-width="1.8" fill="none"/>'
+      + flangesSvg(x1, x2, y1, y2, 6, 7, 4.5, 4, 1)
+      // выноска: от номера системы внутрь воздуховода
+      + '<line x1="127" y1="21" x2="115" y2="62" stroke="#111" stroke-width="1"/>'
+      + '<text x="128" y="16" text-anchor="middle" class="duct__tag duct__tag--plan">' + s.code + '</text>'
       + '</svg>';
   }
 
@@ -223,8 +222,7 @@
       var y = top + i * pitch;
       svg += '<rect x="' + x1 + '" y="' + y + '" width="' + (x2 - x1) + '" height="' + h + '" fill="' + s.hex + '"/>'
         + '<path d="M' + x1 + ' ' + y + 'H' + x2 + 'M' + x1 + ' ' + (y + h) + 'H' + x2 + '" stroke="' + wallOf(s.kind) + '" stroke-width="1.2" fill="none"/>'
-        + '<rect x="' + (x1 - 3) + '" y="' + (y - 2) + '" width="3" height="' + (h + 4) + '" fill="#fff" stroke="#111" stroke-width=".8"/>'
-        + '<rect x="' + x2 + '" y="' + (y - 2) + '" width="3" height="' + (h + 4) + '" fill="#fff" stroke="#111" stroke-width=".8"/>'
+        + flangesSvg(x1, x2, y, y + h, 3, 2, 2.4, 1.6, .7)
         + '<text x="' + (x1 - 10) + '" y="' + (y + h - 2) + '" text-anchor="end" class="floor__lbl">' + s.code + '</text>'
         + '<text x="' + (x2 + 10) + '" y="' + (y + h - 2) + '" class="floor__lbl">' + s.code + '</text>';
     });
