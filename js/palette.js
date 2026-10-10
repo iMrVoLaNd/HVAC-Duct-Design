@@ -1,10 +1,8 @@
 /*
  * Палитра систем вентиляции — в стиле эталонного скриншота (матовые «сигнальные» цвета).
  *
- * Первые цвета в списках — ровно плашки со скриншота (П1, Пн, Пд, Р и В1, Ввыбр, Вд).
- * Остальные подобраны скриптом tools/generate-palette.js в том же стиле так, чтобы каждый
- * следующий цвет сильнее всего отличался от уже выбранных: первые десять — самые разные,
- * дальше различия постепенно уменьшаются.
+ * По 12 цветов на группу, подобраны вручную. Первые цвета — ровно плашки со скриншота
+ * (П1-П4 и В1-В3), остальные — «родня» к ним: спокойные, средней светлоты, одного характера.
  *
  * Модуль работает и в браузере (window.Palette), и в Node (require).
  */
@@ -80,16 +78,32 @@
 
   var COLORS = {
     supply: [
-      '#C1593C', '#629D53', '#FD7600', '#D29E3B', '#594193', '#CA5A95', '#0A5C3F', '#7F3A47', '#794200', '#8E73C4',
-      '#426F14', '#938F2B', '#92357D', '#A5784F', '#8E301A', '#FB8D6E', '#3C8465', '#AC6268', '#A1B451', '#846091',
-      '#A45A1F', '#AE3B43', '#AD3665', '#667F4A', '#8E543D', '#BEAC49', '#CD8640', '#047339', '#3F5725', '#68BE71',
-      '#AF66B6', '#654372', '#AC862B', '#9A5879', '#CD7442', '#D25B5F', '#0D5D11', '#A86F98', '#3F8638', '#B2715D'
+      { name: 'Кирпичный',        hex: '#C1593C' },   // П1  — со скриншота
+      { name: 'Зелёный',          hex: '#629D53' },   // П2  — со скриншота (Пн)
+      { name: 'Оранжевый',        hex: '#FD7600' },   // П3  — со скриншота (Пд)
+      { name: 'Золотистый',       hex: '#D29E3B' },   // П4  — со скриншота (Р)
+      { name: 'Фиолетовый',       hex: '#6B5CAA' },
+      { name: 'Пыльная роза',     hex: '#C9707F' },
+      { name: 'Малиново-красный', hex: '#A8323E' },
+      { name: 'Лаймовый',         hex: '#A3B04A' },
+      { name: 'Хвойный',          hex: '#2F6B4A' },
+      { name: 'Пурпурный',        hex: '#A8447A' },
+      { name: 'Зелёная бирюза',   hex: '#3FA58A' },
+      { name: 'Коралловый',       hex: '#E58A6E' }
     ],
     exhaust: [
-      '#0150B7', '#405364', '#553C3F', '#1D9272', '#9A7B62', '#8C7A9B', '#465536', '#018DA9', '#744513', '#7B837F',
-      '#3480E7', '#136461', '#9C4B3E', '#605474', '#756ACA', '#463C2C', '#69625E', '#A47577', '#2F413D', '#6E778B',
-      '#697D5D', '#825764', '#056B8A', '#556761', '#528B88', '#3D3C4E', '#7E5B49', '#887F82', '#4E478D', '#4C6EA2',
-      '#5E7C86', '#3F7764', '#474747', '#73433B', '#696998', '#786879', '#2A5660', '#007FB1', '#595865', '#277780'
+      { name: 'Синий',            hex: '#0150B7' },   // В1  — со скриншота
+      { name: 'Сланцевый',        hex: '#405364' },   // В2  — со скриншота (Ввыбр)
+      { name: 'Винно-коричневый', hex: '#553C3F' },   // В3  — со скриншота (Вд)
+      { name: 'Голубой',          hex: '#4A9AD6' },
+      { name: 'Бирюзовый',        hex: '#1F8A8A' },
+      { name: 'Серый',            hex: '#8A949E' },
+      { name: 'Коричневый',       hex: '#8A5A3C' },
+      { name: 'Тёмно-синий',      hex: '#1F3563' },
+      { name: 'Оливковый',        hex: '#77783E' },
+      { name: 'Тёмный изумруд',   hex: '#17695B' },
+      { name: 'Песочный',         hex: '#B59B6E' },
+      { name: 'Пыльная сирень',   hex: '#8F7694' }
     ]
   };
 
@@ -100,49 +114,19 @@
   var WALL = { supply: '#FF0000', exhaust: '#0000FF' };
   var PREFIX = { supply: 'П', exhaust: 'В' };
 
-  /* ---------- название цвета (грубо, по оттенку) ---------- */
-
-  function colorName(lab) {
-    var L = lab[0], C = Math.hypot(lab[1], lab[2]);
-    var h = Math.atan2(lab[2], lab[1]) * 180 / Math.PI;
-    if (h < 0) h += 360;
-    if (C < 14) {
-      if (L < 46 && (h < 60 || h >= 330)) return 'Тёмно-коричневый';
-      return L < 30 ? 'Графитовый' : 'Серый';
-    }
-    if (C < 22 && h >= 200 && h < 300) return 'Сланцевый';
-    if (h >= 30 && h < 95 && C < 42) return L < 46 ? 'Коричневый' : 'Бежевый';
-    if (C < 30 && (h >= 300 || h < 14)) return 'Пыльно-лиловый';
-    var name;
-    if (h >= 340 || h < 14) name = L >= 58 ? 'Розовый' : 'Малиновый';
-    else if (h < 35) name = 'Красный';
-    else if (h < 52) name = 'Кирпичный';
-    else if (h < 70) name = 'Оранжевый';
-    else if (h < 95) name = 'Золотистый';
-    else if (h < 125) name = 'Лаймовый';
-    else if (h < 150) name = 'Зелёный';
-    else if (h < 200) name = 'Изумрудный';
-    else if (h < 250) name = 'Бирюзовый';
-    else if (h < 285) name = 'Голубой';
-    else if (h < 303) name = 'Синий';
-    else if (h < 318) name = 'Фиолетовый';
-    else name = 'Пурпурный';
-    return L < 38 ? name + ' тёмный' : name;
-  }
-
   function buildGroup(kind) {
-    return COLORS[kind].map(function (hex, i) {
-      var rgb = hexToRgb(hex), lab = rgbToLab(rgb);
+    return COLORS[kind].map(function (c, i) {
+      var rgb = hexToRgb(c.hex);
       return {
         kind: kind,
         n: i + 1,
         code: PREFIX[kind] + (i + 1),
-        name: colorName(lab),
+        name: c.name,
         reference: i < REFERENCE_COUNT[kind],
         wall: WALL[kind],
-        hex: hex,
+        hex: c.hex,
         rgb: rgb,
-        lab: lab
+        lab: rgbToLab(rgb)
       };
     });
   }
@@ -166,7 +150,7 @@
   var api = {
     COLORS: COLORS, WALL: WALL, PREFIX: PREFIX, SYSTEMS: SYSTEMS,
     hexToRgb: hexToRgb, rgbToHex: rgbToHex, rgbToLab: rgbToLab, deltaE: deltaE,
-    colorName: colorName, windowStats: windowStats
+    windowStats: windowStats
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

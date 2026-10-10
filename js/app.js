@@ -47,13 +47,6 @@
       + '</div></div></article>';
   }
 
-  var BLOCK_NOTE = [
-    'самые непохожие друг на друга',
-    'различимы, но ближе друг к другу',
-    'различимы только при сравнении рядом',
-    'различимы только при сравнении рядом'
-  ];
-
   // Таблица цветового кодирования — квадраты с кодом, как внизу скриншота-эталона.
   function swatchTable(list) {
     return '<div class="swatches">' + list.map(function (s) {
@@ -69,11 +62,7 @@
         + '<h2 class="group__title">' + KIND_TITLE[kind] + ' <small>' + pre + '1–' + pre + list.length
         + ' · стенки RGB ' + P.hexToRgb(P.WALL[kind]).join('·') + '</small></h2>'
         + swatchTable(list);
-      for (var t = 0; t * 10 < list.length; t++) {
-        out += '<h3 class="tier">' + pre + (t * 10 + 1) + '–' + pre + (t * 10 + 10)
-          + ' <span>' + BLOCK_NOTE[t] + '</span></h3>'
-          + '<div class="grid">' + list.slice(t * 10, t * 10 + 10).map(cardHtml).join('') + '</div>';
-      }
+      out += '<div class="grid">' + list.map(cardHtml).join('') + '</div>';
       out += '</section>';
     });
     document.getElementById('groups').innerHTML = out;
@@ -92,17 +81,18 @@
     var rows = '';
     ['supply', 'exhaust'].forEach(function (kind) {
       var list = P.SYSTEMS[kind], pre = P.PREFIX[kind];
-      [[pre + '1–' + pre + '10', P.windowStats(list.slice(0, 10), 10)],
-       [pre + '1–' + pre + list.length + ', любые 10 подряд', P.windowStats(list, 10)]].forEach(function (r) {
-        rows += '<tr><th>' + r[0] + '</th>'
-          + '<td><b>' + r[1].min.toFixed(1) + '</b></td>'
-          + '<td>' + r[1].pair[0] + ' и ' + r[1].pair[1] + '</td>'
-          + '<td class="q">' + quality(r[1].min) + '</td></tr>';
+      var st = P.windowStats(list, list.length);
+      var names = st.pair.map(function (code) {
+        return code + ' ' + list.filter(function (s) { return s.code === code; })[0].name;
       });
+      rows += '<tr><th>' + pre + '1–' + pre + list.length + '</th>'
+        + '<td><b>' + st.min.toFixed(1) + '</b></td>'
+        + '<td>' + names[0] + ' и ' + names[1] + '</td>'
+        + '<td class="q">' + quality(st.min) + '</td></tr>';
     });
     document.getElementById('check').innerHTML =
       '<h2 class="group__title">Проверка различимости</h2>'
-      + '<p>Считаем разницу между цветами по формуле CIEDE2000 (ΔE) и показываем худшую пару. '
+      + '<p>Считаем разницу между цветами по формуле CIEDE2000 (ΔE) и показываем худшую пару в группе. '
       + 'ΔE ≥ 20 — цвета кардинально разные, ≥ 15 — уверенно разные, ≥ 10 — разница заметна, если цвета лежат рядом.</p>'
       + '<table class="stats"><thead><tr><th>Системы</th><th>Худшая пара, ΔE</th><th>Какая пара</th><th>Оценка</th></tr></thead>'
       + '<tbody>' + rows + '</tbody></table>';

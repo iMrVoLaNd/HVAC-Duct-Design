@@ -166,7 +166,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -199,12 +199,12 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .swatches {
   display: grid;
-  grid-template-columns: repeat(10, minmax(0, 1fr));
+  grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: 8px 6px;
   margin: 14px 0 4px;
 }
 .swatch { text-align: center; font-size: 13px; min-width: 0; }
-.swatch i { display: block; height: 34px; border: 1px solid rgba(0, 0, 0, .25); }
+.swatch i { display: block; height: 42px; border: 1px solid rgba(0, 0, 0, .25); }
 .swatch span { display: block; margin-top: 2px; font-style: italic; }
 
 .badge {
@@ -280,7 +280,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (max-width: 600px) {
   .sheet { margin: 0; padding: 20px 16px; border-left: 0; border-right: 0; }
   .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .swatches { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .swatches { grid-template-columns: repeat(6, minmax(0, 1fr)); }
   .ribbon { position: static; }
   .stats { font-size: 13px; }
   .stats th, .stats td { padding: 4px 6px; }

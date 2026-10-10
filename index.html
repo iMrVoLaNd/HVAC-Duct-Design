@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Палитра систем вентиляции</title>
-  <meta name="description" content="Цветовое кодирование приточных и вытяжных систем в BIM/CAD: по 40 цветов на группу в стиле сигнальной палитры.">
+  <meta name="description" content="Цветовое кодирование приточных и вытяжных систем в BIM/CAD: по 12 цветов на группу в стиле сигнальной палитры.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:ital,wght@0,400;0,700;1,400;1,700&display=swap" rel="stylesheet">
@@ -40,9 +40,8 @@
       <span class="chip chip--wall chip--exhaust">синий 0·0·255</span> у вытяжных),
       внутри — заливка цветом системы. Нажмите на HEX или RGB, чтобы скопировать значение для фильтра вида.</p>
     <p><b>Откуда цвета.</b> Первые цвета каждой группы — ровно плашки со скриншота-эталона (помечены «эталон»):
-      П1, П2, П3, П4 и В1, В2, В3. Остальные подобраны в том же матовом сигнальном стиле так, чтобы каждый следующий
-      как можно сильнее отличался от уже выбранных. Поэтому <b>первые 10 систем — самые контрастные</b>, а дальше
-      цвета неизбежно становятся ближе друг к другу: на одном этаже лучше держаться в пределах 10–12 систем.</p>
+      П1–П4 и В1–В3. Остальные подобраны вручную в том же характере: спокойные, матовые, средней светлоты.
+      Двенадцати цветов на группу хватает на один этаж.</p>
   </section>
 
   <section class="check" id="check" aria-label="Проверка различимости"></section>
@@ -53,8 +52,8 @@
     <h2 class="group__title">Проверка на «этаже»</h2>
     <p class="floor__hint">Системы прокладываются рядом, как в коридоре. Двигайте ползунок и смотрите, не сливаются ли соседние.</p>
     <div class="floor__controls">
-      <label>Систем каждого вида: <output id="floor-n">10</output>
-        <input type="range" id="floor-range" min="2" max="40" value="10">
+      <label>Систем каждого вида: <output id="floor-n">8</output>
+        <input type="range" id="floor-range" min="2" max="12" value="8">
       </label>
       <div class="seg" id="floor-kind">
         <button type="button" data-kind="supply">Приточные</button>
@@ -67,8 +66,8 @@
 
   <footer class="titleblock">
     <div><span>Проект</span><b>Палитра систем вентиляции</b></div>
-    <div><span>Приточные</span><b>П1–П40</b></div>
-    <div><span>Вытяжные</span><b>В1–В40</b></div>
+    <div><span>Приточные</span><b>П1–П12</b></div>
+    <div><span>Вытяжные</span><b>В1–В12</b></div>
     <div><span>Следующий этап</span><b>Приточно-вытяжные (ПВ)</b></div>
   </footer>
 </main>
