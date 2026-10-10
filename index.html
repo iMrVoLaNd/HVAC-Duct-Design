@@ -22,6 +22,13 @@
         <button type="button" data-filter="exhaust">Вытяжные</button>
       </div>
     </div>
+    <div class="ribbon__group" role="group" aria-label="Вид воздуховода">
+      <span class="ribbon__label">Вид</span>
+      <div class="seg" id="view">
+        <button type="button" data-view="iso" class="is-active">Объём</button>
+        <button type="button" data-view="plan">План Revit</button>
+      </div>
+    </div>
     <div class="ribbon__group" role="group" aria-label="Экспорт">
       <span class="ribbon__label">Экспорт</span>
       <button type="button" class="btn" id="dl-csv">CSV</button>
@@ -39,8 +46,8 @@
       (<span class="chip chip--wall chip--supply">красный 255·0·0</span> у приточных,
       <span class="chip chip--wall chip--exhaust">синий 0·0·255</span> у вытяжных),
       внутри — заливка цветом системы. Нажмите на HEX или RGB, чтобы скопировать значение для фильтра вида.</p>
-    <p><b>Откуда цвета.</b> Первые цвета каждой группы — ровно плашки со скриншота-эталона (помечены «эталон»):
-      П1–П4 и В1–В3. Остальные подобраны вручную в том же характере: спокойные, матовые, средней светлоты.
+    <p><b>Откуда цвета.</b> Цвета с пометкой «эталон» взяты точно из ваших референсов:
+      приточные — земляная палитра из легенд (терракот, травяной, горчичный, охра, кирпичный), вытяжные В1–В3 — со скриншота. Остальные подобраны вручную в том же характере.
       Двенадцати цветов на группу хватает на один этаж.</p>
   </section>
 

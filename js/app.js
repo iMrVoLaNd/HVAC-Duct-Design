@@ -3,8 +3,71 @@
 
   var P = window.Palette;
   var KIND_TITLE = { supply: 'Приточные системы (П)', exhaust: 'Вытяжные системы (В)' };
+  var view = 'iso';           // 'iso' — объём, как на референсах; 'plan' — план Revit со стенками
+  var filter = 'all';
 
-  /* ---------- рисование воздуховода в плане ---------- */
+  /* ---------- воздуховод в объёме (как BIM «Shaded with Edges» на референсах) ---------- */
+
+  // Осветлить (t > 0) или затемнить (t < 0) цвет. Грани воздуховода — оттенки одного цвета системы.
+  function shade(hex, t) {
+    var target = t > 0 ? 255 : 0, k = Math.abs(t);
+    return P.rgbToHex(P.hexToRgb(hex).map(function (v) { return v + (target - v) * k; }));
+  }
+
+  function add(p, v, k) { k = k === undefined ? 1 : k; return [p[0] + v[0] * k, p[1] + v[1] * k]; }
+  function pts(list) { return list.map(function (p) { return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' '); }
+  function poly(list, fill) {
+    return '<polygon points="' + pts(list) + '" fill="' + fill + '" stroke="#1d1d1d" stroke-width=".9" stroke-linejoin="round"/>';
+  }
+
+  // Боковая грань — ровно цвет системы (чтобы HEX на карточке совпадал с тем, что видно), верх светлее.
+  function ductIsoSvg(s) {
+    var A = [60, 118], L = [132, -44], H = [0, -34], D = [-28, -15], T = [-5, 1.7];
+    var AH = add(A, H), AL = add(A, L), ALH = add(AL, H);
+    var out = '<svg class="duct" viewBox="0 0 240 140" role="img" aria-label="Воздуховод системы ' + s.code + '">';
+
+    // подвес
+    var hang = add(add(AH, L, 0.5), D, 0.5);
+    out += '<line x1="' + hang[0] + '" y1="' + hang[1] + '" x2="' + hang[0] + '" y2="10" stroke="#6b6b6b" stroke-width="1.1"/>';
+
+    // боковая и верхняя грани
+    out += poly([A, AL, ALH, AH], s.hex);
+    out += poly([AH, ALH, add(ALH, D), add(AH, D)], shade(s.hex, 0.14));
+
+    // стыки (рёбра жёсткости) — две полосы поперёк воздуховода
+    [0.36, 0.68].forEach(function (u) {
+      var w = 0.05;
+      out += poly([add(A, L, u), add(A, L, u + w), add(add(A, L, u + w), H), add(add(A, L, u), H)], shade(s.hex, -0.1));
+      out += poly([add(AH, L, u), add(AH, L, u + w), add(add(AH, L, u + w), D), add(add(AH, L, u), D)], shade(s.hex, 0.06));
+    });
+
+    // фланец на ближнем торце с тёмным проёмом
+    function fp(sd, th) { return add(add(add(A, T), D, sd), H, th); }
+    out += poly([fp(-0.14, -0.14), fp(1.14, -0.14), fp(1.14, 1.14), fp(-0.14, 1.14)], shade(s.hex, -0.08));
+    out += poly([fp(0.15, 0.15), fp(0.85, 0.15), fp(0.85, 0.85), fp(0.15, 0.85)], '#2b2b2b');
+    out += poly([fp(0.24, 0.24), fp(0.76, 0.24), fp(0.76, 0.76), fp(0.24, 0.76)], '#575757');
+
+    // направление потока — стрелка под воздуховодом
+    var a0 = add(add(A, [0, 16]), L, 0.2), a1 = add(add(A, [0, 16]), L, 0.8);
+    var ux = L[0] / Math.hypot(L[0], L[1]), uy = L[1] / Math.hypot(L[0], L[1]);
+    var tip = s.kind === 'supply' ? a1 : a0, tail = s.kind === 'supply' ? a0 : a1, dir = s.kind === 'supply' ? 1 : -1;
+    var wing = function (sign) {
+      return [tip[0] - dir * (ux * 7) + sign * (-uy * 3.5), tip[1] - dir * (uy * 7) + sign * (ux * 3.5)];
+    };
+    out += '<path d="M' + tail[0] + ' ' + tail[1] + 'L' + tip[0] + ' ' + tip[1]
+      + 'M' + wing(1)[0] + ' ' + wing(1)[1] + 'L' + tip[0] + ' ' + tip[1] + 'L' + wing(-1)[0] + ' ' + wing(-1)[1]
+      + '" stroke="#1d1d1d" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>';
+
+    // марка системы в кружке с выноской, как на референсах
+    var anchor = add(add(AH, L, 0.82), D, 0.5);
+    out += '<line x1="' + anchor[0] + '" y1="' + anchor[1] + '" x2="199" y2="34" stroke="#1d1d1d" stroke-width=".8"/>'
+      + '<circle cx="213" cy="30" r="14" fill="#fff" stroke="#1d1d1d" stroke-width=".9"/>'
+      + '<text x="213" y="34" text-anchor="middle" class="duct__tag duct__tag--iso">' + s.code + '</text>';
+
+    return out + '</svg>';
+  }
+
+  /* ---------- воздуховод в плане (Revit: боковые стенки красные / синие) ---------- */
 
   // Карточка: воздуховод 300x200 в плане — заливка, боковые стенки, фланцы, осевая, стрелка потока, марка.
   function ductSvg(s) {
@@ -37,10 +100,10 @@
   function cardHtml(s) {
     var rgb = s.rgb.join(', ');
     return '<article class="card" data-kind="' + s.kind + '">'
-      + ductSvg(s)
+      + (view === 'iso' ? ductIsoSvg(s) : ductSvg(s))
       + '<div class="card__meta">'
       + '<div class="card__name"><b>' + s.code + '</b> ' + s.name
-      + (s.reference ? ' <span class="badge" title="Цвет взят со скриншота-эталона">эталон</span>' : '') + '</div>'
+      + (s.reference ? ' <span class="badge" title="Цвет взят из вашего референса">эталон</span>' : '') + '</div>'
       + '<div class="card__vals">'
       + '<button type="button" class="val" data-copy="' + s.hex + '" title="Скопировать HEX">' + s.hex + '</button>'
       + '<button type="button" class="val" data-copy="' + rgb + '" title="Скопировать RGB">' + s.rgb.join(' · ') + '</button>'
@@ -60,12 +123,19 @@
       var list = P.SYSTEMS[kind], pre = P.PREFIX[kind];
       out += '<section class="group group--' + kind + '" data-kind="' + kind + '">'
         + '<h2 class="group__title">' + KIND_TITLE[kind] + ' <small>' + pre + '1–' + pre + list.length
-        + ' · стенки RGB ' + P.hexToRgb(P.WALL[kind]).join('·') + '</small></h2>'
+        + (view === 'plan' ? ' · стенки RGB ' + P.hexToRgb(P.WALL[kind]).join('·') : '') + '</small></h2>'
         + swatchTable(list);
       out += '<div class="grid">' + list.map(cardHtml).join('') + '</div>';
       out += '</section>';
     });
     document.getElementById('groups').innerHTML = out;
+    applyFilter();
+  }
+
+  function applyFilter() {
+    document.querySelectorAll('.group').forEach(function (g) {
+      g.hidden = filter !== 'all' && g.dataset.kind !== filter;
+    });
   }
 
   /* ---------- проверка различимости ---------- */
@@ -195,10 +265,16 @@
       var b = e.target.closest('button');
       if (!b) return;
       this.querySelectorAll('button').forEach(function (x) { x.classList.toggle('is-active', x === b); });
-      var f = b.dataset.filter;
-      document.querySelectorAll('.group').forEach(function (g) {
-        g.hidden = f !== 'all' && g.dataset.kind !== f;
-      });
+      filter = b.dataset.filter;
+      applyFilter();
+    });
+
+    document.getElementById('view').addEventListener('click', function (e) {
+      var b = e.target.closest('button');
+      if (!b) return;
+      this.querySelectorAll('button').forEach(function (x) { x.classList.toggle('is-active', x === b); });
+      view = b.dataset.view;
+      render();
     });
 
     document.getElementById('floor-kind').addEventListener('click', function (e) {
