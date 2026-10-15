@@ -578,7 +578,11 @@ def run_button(world, answers=None, loop=False, path=None):
             answers['_count_get_config'].append(section)
         return Cfg()
 
-    script = types.SimpleNamespace(get_output=lambda: Output(), exit=script_exit,
+    def get_output():
+        world.output_calls = getattr(world, 'output_calls', 0) + 1
+        return Output()
+
+    script = types.SimpleNamespace(get_output=get_output, exit=script_exit,
                                    get_config=get_config, save_config=lambda: None)
     revit = types.SimpleNamespace(doc=doc, uidoc=uidoc)
     class StubPyrevit(types.ModuleType):
@@ -1211,11 +1215,24 @@ class FlexButtonTests(unittest.TestCase):
         self.assertRegex(writes[0], r'=== кінець, \d+ мс')
         self.assertRegex(writes[0], r'створено, id \d+, \d+ мс')                 # тривалість побудови
 
+    def test_output_window_object_is_not_created_without_warnings(self):
+        w = scenario()
+        w.flex_types[0].add(EnumParam(u'Гибкая конфигурация', [u'Жорсткий', u'Гибкий']), 'flexpat')
+        w.picks = [w.a, w.b]
+        run_button(w, {u'Тип гнучкого': 'Flex Round'})
+        self.assertEqual(getattr(w, 'output_calls', 0), 0)                      # get_output() на швидкому шляху не викликається
+
+    def test_output_is_created_only_when_there_is_a_warning(self):
+        w = scenario()                                                          # параметра немає → буде попередження
+        w.picks = [w.a, w.b]
+        run_button(w, {u'Тип гнучкого': 'Flex Round'})
+        self.assertEqual(getattr(w, 'output_calls', 0), 1)
+
     def test_preparation_time_is_logged(self):
         w = scenario()
         w.picks = [w.a, w.b]
         run_button(w, {u'Тип гнучкого': 'Flex Alu'})
-        self.assertRegex(self._log_text(), r'підготовка до першого вибору[^\n]*: \d+ мс')
+        self.assertRegex(self._log_text(), r'підготовка до першого вибору: \d+ мс \(імпорти \d+, типи й налаштування \d+\)')
 
     def test_script_does_not_import_uuid_or_heavy_modules(self):
         for path in (SCRIPT, CONFIG):

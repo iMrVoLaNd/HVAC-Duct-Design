@@ -42,9 +42,10 @@ except Exception:
     hvac_log.log_exception(TOOL, u'імпорт модулів')
     raise
 
+_T_MAIN = 0.0
+_T_IMPORTED = time.time()      # імпорти закінчено (для розбивки часу підготовки в журналі)
 doc = revit.doc
 uidoc = revit.uidoc
-output = script.get_output()
 
 
 class _LazyForms(object):
@@ -877,6 +878,8 @@ def build_one(c0, c1, flex_type, size, system_state):
 
 
 def main():
+    global _T_MAIN
+    _T_MAIN = time.time()
     types = flex_types()
     if not types:
         forms.alert(u'У проєкті немає типів гнучких повітроводів.', title=u'QuickFlexConnect', exitscript=True)
@@ -890,7 +893,8 @@ def main():
         len(types), u', '.join(u'{0}[{1}]'.format(n, sh) for n, sh, _t in entries), config_value, loop,
         hvac_flex_settings.is_type_from_model(cfg), hvac_log.log_path()))
     tail = u'Esc — завершити' if loop else u'Esc — скасувати'
-    hvac_log.log(TOOL, u'підготовка до першого вибору (імпорти, типи, налаштування): {0} мс'.format(hvac_log.elapsed_ms(_T0)))
+    hvac_log.log(TOOL, u'підготовка до першого вибору: {0} мс (імпорти {1}, типи й налаштування {2})'.format(
+        hvac_log.elapsed_ms(_T0), int((_T_IMPORTED - _T0) * 1000), hvac_log.elapsed_ms(_T_MAIN)))
     system_state = {'id': None, 'type': None, 'from_model': hvac_flex_settings.is_type_from_model(cfg),
                     'value': config_value,
                     'number': hvac_flex_settings.get_config_number(cfg, ctx), 'learned': None, 'trusted': False,
@@ -940,7 +944,7 @@ def main():
         if not loop:
             break
     for w in sorted(set(system_state['warnings'])):
-        output.print_md(u'* **Увага:** {0}'.format(w))
+        script.get_output().print_md(u'* **Увага:** {0}'.format(w))      # вікно виводу — лише коли є що показати
     if system_state['learned'] is not None and system_state['learned'] != hvac_flex_settings.get_config_number(cfg, ctx):
         hvac_flex_settings.set_config_number(cfg, system_state['learned'], ctx)      # наступного разу — без перебору
         script.save_config()
