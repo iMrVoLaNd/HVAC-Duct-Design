@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
-__title__ = u'Гнучкий\nміж конекторами'
+__title__ = u'QuickFlex\nConnect'
 __author__ = u'HVAC-Duct-Design'
-__doc__ = (u'Обираєте два елементи (повітровод, арматуру, фасонну частину, обладнання) — між їхніми найближчими вільними '
+__doc__ = (u'QuickFlexConnect: обираєте два елементи (повітровод, арматуру, фасонну частину, обладнання, повітророзподільник) — між їхніми найближчими вільними '
            u'конекторами будується гнучкий повітровод '
            u'обраного типу (тип обирається після натискання кнопки), кінці з\'єднуються з конекторами. '
            u'Shift+клік — вікно налаштувань: параметр «Гибкая конфигурация» (за замовчуванням «Гибкий») '
@@ -27,7 +27,7 @@ except ImportError:
     forms.alert(u'Не знайдено файл lib\\hvac_log.py.\nСкопіюйте в розширення ВСЮ папку HVAC.extension разом із lib '
                 u'(усі файли) і перезавантажте pyRevit.\n\nШукав тут: {0}'.format(_LIB),
                 title=u'HVAC', exitscript=True)
-TOOL = 'flex_between'
+TOOL = 'QuickFlexConnect'
 
 try:
     from pyrevit import revit, DB, UI, forms, script
@@ -48,7 +48,7 @@ output = script.get_output()
 MIN_LEN_FT = 1.0 / 10.0 / 12.0       # Revit не будує MEP-криві коротші за 1/10 дюйма
 BEND_FACTOR = 0.3                    # «виліт» кривої від конектора (частка відстані) у запасному варіанті
 BEND_MIN_FT = 0.3
-CONFIG_SECTION = 'flex_between'
+CONFIG_SECTION = 'flex_between'       # ім'я секції конфігурації лишилось старим, щоб не втратити збережені налаштування
 
 # Які елементи можна вибирати (назви BuiltInCategory). Потрібне додайте, зайве приберіть.
 ALLOWED_CATEGORIES = [
@@ -184,7 +184,7 @@ def pick_sample_type(by_name):
     hvac_log.log(TOOL, u'тип зі зразка в моделі: «{0}»'.format(name))
     if name not in by_name:
         forms.alert(u'Тип «{0}» не знайдено серед типів гнучких повітроводів. Оберіть зі списку.'.format(name),
-                    title=u'Гнучкий повітровод')
+                    title=u'QuickFlexConnect')
         return None
     return by_name[name]
 
@@ -303,7 +303,7 @@ def system_type_id_from(connector):
 def pick_system_type_id():
     types = sorted(DB.FilteredElementCollector(doc).OfClass(DB.Mechanical.MechanicalSystemType), key=type_name)
     if not types:
-        forms.alert(u'У проєкті немає типів механічних систем.', title=u'Гнучкий повітровод', exitscript=True)
+        forms.alert(u'У проєкті немає типів механічних систем.', title=u'QuickFlexConnect', exitscript=True)
     names = [type_name(t) for t in types]
     return choose_from(types, names, u'Тип системи для нового гнучкого повітровода:', 'system_type').Id
 
@@ -510,7 +510,7 @@ def apply_config_param(flex, state):
 BUILD_XAML = u"""
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Гнучкий повітровод" Width="400" SizeToContent="Height" WindowStartupLocation="CenterScreen"
+        Title="QuickFlexConnect" Width="400" SizeToContent="Height" WindowStartupLocation="CenterScreen"
         ResizeMode="NoResize" ShowInTaskbar="False" Topmost="True">
   <StackPanel Margin="12">
     <TextBlock Text="Розміри елементів різні. Розмір гнучкого повітровода:" Margin="0,0,0,6"/>
@@ -651,7 +651,7 @@ def choose_options(s0, s1, entries, state):
                 save_last('flex_type', type_name(sample))
                 return sample, size
             forms.alert(u'Тип «{0}» не підходить за формою («{1}»). Оберіть інший зі списку.'.format(
-                type_name(sample), hvac_sizes.SHAPE_NAMES.get(size.get('shape'), u'?')), title=u'Гнучкий повітровод')
+                type_name(sample), hvac_sizes.SHAPE_NAMES.get(size.get('shape'), u'?')), title=u'QuickFlexConnect')
         chosen = choose_from([by_name[n] for n in names], names, u'Тип гнучкого повітровода:', 'flex_type')
         state['type'] = chosen
         return chosen, size
@@ -687,7 +687,7 @@ def build_one(c0, c1, flex_type, size, system_state):
     hvac_log.log(TOOL, u'побудова: тип {0}, розмір {1}, система {2}, рівень {3}, довжина {4:.3f} ft'.format(
         type_name(flex_type), hvac_sizes.label(size), eid_int(system_id), eid_int(level_id),
         c0.Origin.DistanceTo(c1.Origin)))
-    t = DB.Transaction(doc, u'Гнучкий повітровод між конекторами')
+    t = DB.Transaction(doc, u'QuickFlexConnect: гнучкий повітровод між конекторами')
     t.Start()
     try:
         flex = create_flex(c0, c1, flex_type.Id, system_id, level_id)
@@ -706,7 +706,7 @@ def build_one(c0, c1, flex_type, size, system_state):
 def main():
     types = flex_types()
     if not types:
-        forms.alert(u'У проєкті немає типів гнучких повітроводів.', title=u'Гнучкий повітровод', exitscript=True)
+        forms.alert(u'У проєкті немає типів гнучких повітроводів.', title=u'QuickFlexConnect', exitscript=True)
     entries = [(type_name(t), type_shape(t), t) for t in types]
     cfg = script.get_config(CONFIG_SECTION)
     config_value = hvac_flex_settings.get_config_value(cfg)
@@ -731,13 +731,13 @@ def main():
         hvac_log.log(TOOL, u'вибрано: {0} «{1}» id {2} і {3} «{4}» id {5}'.format(
             category_name(e0), type_label(e0), eid_int(e0.Id), category_name(e1), type_label(e1), eid_int(e1.Id)))
         if eid_int(e0.Id) == eid_int(e1.Id):
-            forms.alert(u'Це той самий елемент. Оберіть два різні.', title=u'Гнучкий повітровод')
+            forms.alert(u'Це той самий елемент. Оберіть два різні.', title=u'QuickFlexConnect')
             if loop:
                 continue
             break
         pair = closest_pair(e0, e1)
         if pair is None:
-            forms.alert(u'На одному з елементів немає вільних конекторів.', title=u'Гнучкий повітровод')
+            forms.alert(u'На одному з елементів немає вільних конекторів.', title=u'QuickFlexConnect')
             if loop:
                 continue
             break
@@ -755,7 +755,7 @@ def main():
                 raise                                       # Esc / закрите вікно вибору
             hvac_log.log(TOOL, u'побудова не вдалася: {0}'.format(ex))
             forms.alert(u'Не вдалося побудувати гнучкий повітровод:\n{0}\n\nЖурнал: {1}'.format(ex, hvac_log.log_path()),
-                        title=u'Гнучкий повітровод')
+                        title=u'QuickFlexConnect')
         if not loop:
             break
     for w in sorted(set(system_state['warnings'])):

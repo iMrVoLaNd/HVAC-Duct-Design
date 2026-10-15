@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Сухий прогон кнопки «Гнучкий між конекторами» на заглушках API Revit (без Revit).
+"""Сухий прогон кнопки QuickFlexConnect на заглушках API Revit (без Revit).
 
 Запуск з кореня репозиторію:   python3 -m unittest discover -s pyrevit/tests -v
 Заглушки повторюють лише ті виклики API, що використовує скрипт; це не заміна перевірці в Revit 2026,
@@ -18,8 +18,8 @@ import unittest
 
 NO = u'(не змінювати параметр)'          # пункт «не чіпати параметр» у списку налаштувань
 HERE = os.path.dirname(os.path.abspath(__file__))
-SCRIPT = os.path.join(HERE, '..', 'HVAC.extension', 'HVAC.tab', 'Systems.panel', 'FlexBetween.pushbutton', 'script.py')
-CONFIG = os.path.join(HERE, '..', 'HVAC.extension', 'HVAC.tab', 'Systems.panel', 'FlexBetween.pushbutton', 'config.py')
+SCRIPT = os.path.join(HERE, '..', 'HVAC.extension', 'HVAC.tab', 'Systems.panel', 'QuickFlexConnect.pushbutton', 'script.py')
+CONFIG = os.path.join(HERE, '..', 'HVAC.extension', 'HVAC.tab', 'Systems.panel', 'QuickFlexConnect.pushbutton', 'config.py')
 LIB = os.path.join(HERE, '..', 'HVAC.extension', 'lib')
 os.environ['HVAC_LOG_DIR'] = tempfile.mkdtemp()      # журнал тестів — не в реальний %APPDATA%
 if LIB not in sys.path:
@@ -1432,7 +1432,7 @@ class FlexButtonTests(unittest.TestCase):
         copy = os.path.join(tmp, 'HVAC.extension')
         shutil.copytree(ext, copy)
         os.remove(os.path.join(copy, 'lib', 'hvac_log.py'))             # «не докопіювали» файл
-        script_copy = os.path.join(copy, 'HVAC.tab', 'Systems.panel', 'FlexBetween.pushbutton', 'script.py')
+        script_copy = os.path.join(copy, 'HVAC.tab', 'Systems.panel', 'QuickFlexConnect.pushbutton', 'script.py')
         restore = self._isolated_imports()
         try:
             w = scenario()
@@ -1455,7 +1455,7 @@ class FlexButtonTests(unittest.TestCase):
         w.picks = [w.a, w.b]
         run_button(w)
         text = self._log_text()
-        self.assertIn(u'[flex_between] === запуск', text)
+        self.assertIn(u'[QuickFlexConnect] === запуск', text)
         self.assertIn(u'вибрано:', text)
         self.assertIn(u'пара конекторів:', text)
         self.assertIn(u'FlexDuct.Create: варіант з дотичними', text)

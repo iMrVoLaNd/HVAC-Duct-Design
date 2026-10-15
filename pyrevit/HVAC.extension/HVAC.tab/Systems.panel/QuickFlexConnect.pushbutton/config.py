@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Вікно налаштувань кнопки «Гнучкий між конекторами» (відкривається Shift+кліком по кнопці):
+"""Вікно налаштувань кнопки QuickFlexConnect (відкривається Shift+кліком по кнопці):
 параметр «Гибкая конфигурация» (RBS_FLEX_PATTERN_PARAM; за замовчуванням значення «Гибкий») і перемикач «Цикл» (за замовчуванням вимкнено).
 Тип гнучкого повітровода тут не налаштовується: його обирають після натискання кнопки."""
 # Сумісно з IronPython 3.4 (pyRevit) і CPython: без f-рядків та сучасного синтаксису.
@@ -20,7 +20,7 @@ except ImportError:
     forms.alert(u'Не знайдено файл lib\\hvac_log.py.\nСкопіюйте в розширення ВСЮ папку HVAC.extension разом із lib '
                 u'(усі файли) і перезавантажте pyRevit.\n\nШукав тут: {0}'.format(_LIB),
                 title=u'HVAC', exitscript=True)
-TOOL = 'flex_between_config'
+TOOL = 'QuickFlexConnect_config'
 
 try:
     from pyrevit import revit, DB, forms, script
@@ -33,14 +33,14 @@ except Exception:
 
 doc = revit.doc
 CONFIG_SECTION = hvac_flex_settings.SECTION
-TITLE = u'Гнучкий повітровод — налаштування'
+TITLE = u'QuickFlexConnect — налаштування'
 NO_CHANGE = u'(не змінювати параметр)'      # пункт списку: значення порожнє — параметр не чіпати
 
 
 XAML = u"""
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Гнучкий повітровод — налаштування" Width="440" SizeToContent="Height"
+        Title="QuickFlexConnect — налаштування" Width="440" SizeToContent="Height"
         WindowStartupLocation="CenterScreen" ResizeMode="NoResize" ShowInTaskbar="False">
   <StackPanel Margin="16">
     <TextBlock Text="Параметр «Гибкая конфигурация» (RBS_FLEX_PATTERN_PARAM) — значення:" Margin="0,0,0,4"/>
