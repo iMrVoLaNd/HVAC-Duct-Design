@@ -2,12 +2,15 @@
 __title__ = u'Гнучкий\nміж конекторами'
 __author__ = u'HVAC-Duct-Design'
 __doc__ = (u'Обираєте два вільні конектори (клік на елементі біля конектора) — між ними будується гнучкий повітровод '
-           u'обраного типу, кінці з\'єднуються з конекторами. Esc — завершити (кнопка працює в циклі).')
+           u'типу з налаштувань (Shift+клік; за замовчуванням «Гибкий»), кінці з\'єднуються з конекторами. '
+           u'За замовчуванням будується один повітровод; серія до Esc — кнопка «Цикл».')
 
 # Сумісно з IronPython 3.4 (pyRevit) і CPython: без f-рядків та сучасного синтаксису.
 from pyrevit import revit, DB, UI, forms, script
 from System.Collections.Generic import List
 from Autodesk.Revit.Exceptions import OperationCanceledException
+
+import hvac_flex_settings
 
 doc = revit.doc
 uidoc = revit.uidoc
@@ -235,29 +238,47 @@ def main():
     types = flex_types()
     if not types:
         forms.alert(u'У проєкті немає типів гнучких повітроводів.', title=u'Гнучкий повітровод', exitscript=True)
-    flex_type = choose_from(types, [type_name(t) for t in types], u'Тип гнучкого повітровода:', 'flex_type')
+    cfg = script.get_config(CONFIG_SECTION)
+    names = [type_name(t) for t in types]
+    # Тип — з налаштувань (Shift+клік по кнопці), за замовчуванням «Гибкий»; немає такого — питаємо зі списку.
+    idx = hvac_flex_settings.find_type_index(names, hvac_flex_settings.get_flex_type(cfg))
+    if idx is not None:
+        flex_type = types[idx]
+    else:
+        flex_type = choose_from(types, names, u'Тип гнучкого повітровода:', hvac_flex_settings.FLEX_TYPE_KEY)
+    # Режим циклу вмикається окремою кнопкою «Цикл» (за замовчуванням вимкнений).
+    loop = hvac_flex_settings.is_loop(cfg)
+    tail = u'Esc — завершити' if loop else u'Esc — скасувати'
     system_state = {'id': None}
     made = 0
     while True:
         try:
-            c0 = pick_connector(u'Перший конектор: клацніть на елементі біля вільного конектора (Esc — завершити)')
+            c0 = pick_connector(u'Перший конектор: клацніть на елементі біля вільного конектора ({0})'.format(tail))
             if c0 is None:
                 forms.alert(u'На цьому елементі немає вільних конекторів.', title=u'Гнучкий повітровод')
-                continue
-            c1 = pick_connector(u'Другий конектор: клацніть на елементі біля вільного конектора (Esc — завершити)')
+                if loop:
+                    continue
+                break
+            c1 = pick_connector(u'Другий конектор: клацніть на елементі біля вільного конектора ({0})'.format(tail))
             if c1 is None:
                 forms.alert(u'На цьому елементі немає вільних конекторів.', title=u'Гнучкий повітровод')
-                continue
+                if loop:
+                    continue
+                break
         except OperationCanceledException:
             break
         if eid_int(c0.Owner.Id) == eid_int(c1.Owner.Id) and c0.Id == c1.Id:
             forms.alert(u'Це той самий конектор. Оберіть два різні.', title=u'Гнучкий повітровод')
-            continue
+            if loop:
+                continue
+            break
         try:
             build_one(c0, c1, flex_type, system_state)
             made += 1
         except Exception as ex:
             forms.alert(u'Не вдалося побудувати гнучкий повітровод:\n{0}'.format(ex), title=u'Гнучкий повітровод')
+        if not loop:
+            break
     if made:
         output.print_md(u'**Гнучких повітроводів створено: {0}** (тип «{1}»)'.format(made, type_name(flex_type)))
 

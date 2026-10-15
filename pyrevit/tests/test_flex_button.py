@@ -16,6 +16,13 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(HERE, '..', 'HVAC.extension', 'HVAC.tab', 'Systems.panel', 'FlexBetween.pushbutton', 'script.py')
+CONFIG = os.path.join(HERE, '..', 'HVAC.extension', 'HVAC.tab', 'Systems.panel', 'FlexBetween.pushbutton', 'config.py')
+LOOP_BTN = os.path.join(HERE, '..', 'HVAC.extension', 'HVAC.tab', 'Systems.panel', 'FlexBetweenLoop.smartbutton',
+                        'script.py')
+LIB = os.path.join(HERE, '..', 'HVAC.extension', 'lib')
+if LIB not in sys.path:
+    sys.path.insert(0, LIB)
+import hvac_flex_settings
 
 
 class XYZ(object):
@@ -145,7 +152,7 @@ class World(object):
         self.tx = []
 
 
-def run_button(world, answers=None):
+def run_button(world, answers=None, loop=False, path=None):
     DB = types.SimpleNamespace()
     DB.ElementId = EId
     DB.XYZ = XYZ
@@ -256,6 +263,8 @@ def run_button(world, answers=None):
             world.log.append(('md', t))
 
     cfg_store = answers.get('_config', {})
+    if loop:
+        cfg_store['loop'] = 'true'
 
     class Cfg(object):
         def get_option(self, k, d=None):
@@ -284,7 +293,7 @@ def run_button(world, answers=None):
                         'Autodesk': types.ModuleType('Autodesk'), 'Autodesk.Revit': types.ModuleType('Autodesk.Revit'),
                         'Autodesk.Revit.Exceptions': exc})
     try:
-        runpy.run_path(SCRIPT, run_name='__main__')
+        runpy.run_path(path or SCRIPT, run_name='__main__')
     finally:
         for k, v in saved.items():
             if v is None:
@@ -362,13 +371,13 @@ class FlexButtonTests(unittest.TestCase):
         self.assertGreater(pts[1][2], 0)             # друга точка — вгору від першого конектора (його нормаль +Z)
         self.assertLess(pts[2][0], 3)                # передостання — «перед» кінцем (нормаль другого конектора −X)
 
-    def test_loop_creates_several_until_escape(self):
+    def test_loop_on_creates_several_until_escape(self):
         w = scenario()
         c = FakeInstance(3, [Connector(None, XYZ(0, 5, 0), XYZ(0, 0, 1))], level=EId(100))
         d = FakeDuct(4, [Connector(None, XYZ(3, 5, 1), XYZ(-1, 0, 0))], level=EId(100))
         w.elements.update({3: c, 4: d})
         w.picks = [(w.a, XYZ(0, 0, 0)), (w.b, XYZ(3, 0, 1)), (c, XYZ(0, 5, 0)), (d, XYZ(3, 5, 1)), Cancelled]
-        run_button(w)
+        run_button(w, loop=True)
         self.assertEqual(len(w.created), 2)
         self.assertEqual([f.created_with['points'][0] for f in w.created], [(0, 0, 0), (0, 5, 0)])
         self.assertEqual(w.tx, ['start', 'commit', 'start', 'commit'])
@@ -432,15 +441,207 @@ class FlexButtonTests(unittest.TestCase):
         run_button(w, {u'Тип гнучкого': 'Flex Alu', '_config': cfg})
         self.assertEqual(cfg.get('flex_type'), 'Flex Alu')
         w2 = scenario()
-        w2.picks = [Cancelled]
+        w2.picks = [(w2.a, XYZ(0, 0, 0)), (w2.b, XYZ(3, 0, 1)), Cancelled]
         run_button(w2, {'_config': cfg})
-        shown = [l for l in w2.log if l[0] == 'select'][0]
-        self.assertEqual(shown[2][0], 'Flex Alu')                           # останній обраний — першим у списку
+        self.assertEqual([l for l in w2.log if l[0] == 'select' and u'Тип гнучкого' in l[1]], [])     # вже запам'ятано
+        self.assertEqual(w2.created[0].created_with['type'], 2)
 
+    # ---------- режим циклу: за замовчуванням вимкнено ----------
+
+    def _two_pairs(self):
+        w = scenario()
+        c = FakeInstance(3, [Connector(None, XYZ(0, 5, 0), XYZ(0, 0, 1))], level=EId(100))
+        d = FakeDuct(4, [Connector(None, XYZ(3, 5, 1), XYZ(-1, 0, 0))], level=EId(100))
+        w.elements.update({3: c, 4: d})
+        w.picks = [(w.a, XYZ(0, 0, 0)), (w.b, XYZ(3, 0, 1)), (c, XYZ(0, 5, 0)), (d, XYZ(3, 5, 1)), Cancelled]
+        return w
+
+    def test_loop_off_by_default_builds_one_pair_and_stops(self):
+        w = self._two_pairs()
+        run_button(w)
+        self.assertEqual(len(w.created), 1)
+        self.assertEqual(len(w.picks), 3)                # друга пара навіть не запитувалась
+
+    def test_loop_off_stops_after_error(self):
+        w = scenario()
+        w.b.ConnectorManager.Connectors[0].Origin = XYZ(0, 0, 0.001)
+        w.picks = [(w.a, XYZ(0, 0, 0)), (w.b, XYZ(0, 0, 0.001)), (w.a, XYZ(0, 0, 0)), (w.b, XYZ(3, 0, 1))]
+        run_button(w)
+        self.assertEqual(w.created, [])
+        self.assertEqual(len(w.picks), 2)                # без циклу — одна спроба
+
+    def test_loop_off_stops_after_same_connector(self):
+        w = scenario()
+        w.picks = [(w.a, XYZ(0, 0, 0)), (w.a, XYZ(0, 0, 0)), (w.a, XYZ(0, 0, 0)), (w.b, XYZ(3, 0, 1))]
+        run_button(w)
+        self.assertEqual((w.created, len(w.picks)), ([], 2))
+
+    def test_loop_on_continues_after_same_connector(self):
+        w = scenario()
+        w.picks = [(w.a, XYZ(0, 0, 0)), (w.a, XYZ(0, 0, 0)), (w.a, XYZ(0, 0, 0)), (w.b, XYZ(3, 0, 1)), Cancelled]
+        run_button(w, loop=True)
+        self.assertEqual(len(w.created), 1)
+
+    # ---------- тип гнучкого повітровода з налаштувань ----------
+
+    def test_default_type_is_gibkiy_without_asking(self):
+        w = scenario()
+        w.flex_types.append(types.SimpleNamespace(Name=u'Гибкий', Id=EId(3)))
+        w.picks = [(w.a, XYZ(0, 0, 0)), (w.b, XYZ(3, 0, 1))]
+        run_button(w)
+        self.assertEqual(w.created[0].created_with['type'], 3)
+        self.assertEqual([l for l in w.log if l[0] == 'select'], [])
+
+    def test_type_from_settings_wins_over_default(self):
+        w = scenario()
+        w.flex_types.append(types.SimpleNamespace(Name=u'Гибкий', Id=EId(3)))
+        w.picks = [(w.a, XYZ(0, 0, 0)), (w.b, XYZ(3, 0, 1))]
+        run_button(w, {'_config': {'flex_type': 'Flex Alu'}})
+        self.assertEqual(w.created[0].created_with['type'], 2)
+
+    def test_type_match_ignores_case(self):
+        w = scenario()
+        w.flex_types.append(types.SimpleNamespace(Name=u'ГИБКИЙ', Id=EId(3)))
+        w.picks = [(w.a, XYZ(0, 0, 0)), (w.b, XYZ(3, 0, 1))]
+        run_button(w)
+        self.assertEqual(w.created[0].created_with['type'], 3)
+
+    def test_asks_list_when_configured_type_missing(self):
+        w = scenario()                                      # типів «Гибкий» немає
+        w.picks = [(w.a, XYZ(0, 0, 0)), (w.b, XYZ(3, 0, 1))]
+        run_button(w, {'_config': {'flex_type': u'Немає такого'}})
+        self.assertEqual(len([l for l in w.log if l[0] == 'select']), 1)
+
+    def test_config_button_saves_chosen_type(self):
+        w = scenario()
+        cfg = {}
+        run_button(w, {u'Тип гнучкого': 'Flex Alu', '_config': cfg}, path=CONFIG)
+        self.assertEqual(cfg['flex_type'], 'Flex Alu')
+        shown = [l for l in w.log if l[0] == 'select'][0]
+        self.assertIn(u'Гибкий', shown[1])                  # показано поточне значення за замовчуванням
+
+    def test_config_button_lists_current_type_first(self):
+        w = scenario()
+        run_button(w, {'_config': {'flex_type': 'Flex Round'}}, path=CONFIG)
+        shown = [l for l in w.log if l[0] == 'select'][0]
+        self.assertEqual(shown[2][0], 'Flex Round')
+
+    def test_config_button_without_types_aborts(self):
+        w = scenario()
+        w.flex_types = []
+        with self.assertRaises(ExitScript):
+            run_button(w, path=CONFIG)
+
+
+class SettingsModuleTests(unittest.TestCase):
+    class Cfg(object):
+        def __init__(self, **kw):
+            self.d = dict(kw)
+
+        def get_option(self, k, d=None):
+            return self.d.get(k, d)
+
+        def set_option(self, k, v):
+            self.d[k] = v
+
+    class Broken(object):
+        def get_option(self, k, d=None):
+            raise RuntimeError('boom')
+
+    def test_loop_is_off_by_default(self):
+        self.assertFalse(hvac_flex_settings.is_loop(self.Cfg()))
+
+    def test_loop_truthy_values(self):
+        for v in ('true', 'True', ' 1 ', 'yes', 'on'):
+            self.assertTrue(hvac_flex_settings.is_loop(self.Cfg(loop=v)), v)
+        for v in ('false', '', '0', 'no', 'maybe'):
+            self.assertFalse(hvac_flex_settings.is_loop(self.Cfg(loop=v)), v)
+
+    def test_loop_read_error_means_off(self):
+        self.assertFalse(hvac_flex_settings.is_loop(self.Broken()))
+
+    def test_set_loop_roundtrip(self):
+        c = self.Cfg()
+        hvac_flex_settings.set_loop(c, True)
+        self.assertTrue(hvac_flex_settings.is_loop(c))
+        hvac_flex_settings.set_loop(c, False)
+        self.assertFalse(hvac_flex_settings.is_loop(c))
+
+    def test_flex_type_default_and_roundtrip(self):
+        c = self.Cfg()
+        self.assertEqual(hvac_flex_settings.get_flex_type(c), u'Гибкий')
+        hvac_flex_settings.set_flex_type(c, u'Alu')
+        self.assertEqual(hvac_flex_settings.get_flex_type(c), u'Alu')
+        self.assertEqual(hvac_flex_settings.get_flex_type(self.Broken()), u'Гибкий')
+
+    def test_find_type_index(self):
+        f = hvac_flex_settings.find_type_index
+        names = [u'Alu', u'гибкий', u'Гибкий воздуховод', u'Гибкий']
+        self.assertEqual(f(names, u'Гибкий'), 3)                 # точний збіг важливіший
+        self.assertEqual(f([u'ГИБКИЙ', u'Alu'], u'Гибкий'), 0)   # без регістру
+        self.assertEqual(f([u'Alu', u'Гибкий воздуховод'], u'Гибкий'), 1)    # за початком назви
+        self.assertIsNone(f([u'Alu'], u'Гибкий'))
+        self.assertIsNone(f([u'Alu'], u''))
+
+
+class LoopToggleButtonTests(unittest.TestCase):
+    def _load(self, store):
+        calls = {'saved': 0, 'icons': []}
+
+        class Cfg(object):
+            def get_option(self, k, d=None):
+                return store.get(k, d)
+
+            def set_option(self, k, v):
+                store[k] = v
+
+        script = types.SimpleNamespace(get_config=lambda section=None: Cfg(),
+                                       save_config=lambda: calls.__setitem__('saved', calls['saved'] + 1),
+                                       toggle_icon=lambda state: calls['icons'].append(state))
+        pyrevit = types.ModuleType('pyrevit')
+        pyrevit.script = script
+        pyrevit.forms = types.SimpleNamespace(show_balloon=lambda *a, **k: None)
+        saved = sys.modules.get('pyrevit')
+        sys.modules['pyrevit'] = pyrevit
+        try:
+            g = runpy.run_path(LOOP_BTN, run_name='loop_btn')
+        finally:
+            if saved is None:
+                sys.modules.pop('pyrevit', None)
+            else:
+                sys.modules['pyrevit'] = saved
+        return g, calls
+
+    def test_toggle_flips_state_and_saves(self):
+        store = {}
+        g, calls = self._load(store)
+        g['toggle']()
+        self.assertEqual(store['loop'], 'true')
+        g['toggle']()
+        self.assertEqual(store['loop'], 'false')
+        self.assertEqual((calls['saved'], calls['icons']), (2, [True, False]))
+
+    def test_selfinit_sets_icon_by_state_and_returns_true(self):
+        for state, icon in (({}, 'off.png'), ({'loop': 'true'}, 'on.png')):
+            g, _ = self._load(dict(state))
+            icons = []
+            ui = types.SimpleNamespace(set_icon=lambda path: icons.append(path))
+            cmp_ = types.SimpleNamespace(get_bundle_file=lambda name: name)
+            self.assertTrue(g['__selfinit__'](cmp_, ui, None))
+            self.assertEqual(icons, [icon])
+
+    def test_bundle_files_exist(self):
+        base = os.path.dirname(LOOP_BTN)
+        for name in ('on.png', 'off.png', 'icon.png', 'bundle.yaml'):
+            self.assertTrue(os.path.isfile(os.path.join(base, name)), name)
+
+
+class FlexButtonSourceTests(unittest.TestCase):
     def test_no_fstrings_for_ironpython34(self):
-        with io.open(SCRIPT, encoding='utf-8') as f:
-            text = f.read()
-        self.assertIsNone(re.search(r"""(?<![A-Za-z0-9_])[fF][rR]?['"]""", text))
+        for path in (SCRIPT, CONFIG, LOOP_BTN, os.path.join(LIB, 'hvac_flex_settings.py')):
+            with io.open(path, encoding='utf-8') as f:
+                text = f.read()
+            self.assertIsNone(re.search(r"""(?<![A-Za-z0-9_])[fF][rR]?['"]""", text), path)
 
 
 if __name__ == '__main__':
