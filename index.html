@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="ru">
+<html lang="uk">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Палитра систем вентиляции</title>
-  <meta name="description" content="Цветовое кодирование приточных и вытяжных систем в BIM/CAD: по 40 цветов на группу с проверкой различимости соседних систем.">
+  <title>Палітра систем вентиляції</title>
+  <meta name="description" content="">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Roboto+Condensed:ital,wght@0,400;0,700;1,400;1,700&display=swap" rel="stylesheet">
@@ -12,71 +12,87 @@
 </head>
 <body>
 
-<!-- Общие определения заливок (штриховки) для всех SVG на странице -->
-<svg id="defs" width="0" height="0" style="position:absolute" aria-hidden="true"><defs></defs></svg>
-
 <header class="ribbon">
   <div class="ribbon__inner">
-    <div class="ribbon__group" role="group" aria-label="Показать системы">
-      <span class="ribbon__label">Показать</span>
+    <div class="ribbon__group" role="group" data-i18n-attr="aria-label:ariaShow">
+      <span class="ribbon__label" data-i18n="ribbonShow"></span>
       <div class="seg" id="filter">
-        <button type="button" data-filter="all" class="is-active">Все</button>
-        <button type="button" data-filter="supply">Приточные</button>
-        <button type="button" data-filter="exhaust">Вытяжные</button>
+        <button type="button" data-filter="all" class="is-active" data-i18n="showAll"></button>
+        <button type="button" data-filter="supply" data-i18n="showSupply"></button>
+        <button type="button" data-filter="exhaust" data-i18n="showExhaust"></button>
+        <button type="button" data-filter="pipes" data-i18n="showPipes"></button>
       </div>
     </div>
-    <div class="ribbon__group" role="group" aria-label="Экспорт">
-      <span class="ribbon__label">Экспорт</span>
+    <div class="ribbon__group" role="group" data-i18n-attr="aria-label:ariaView">
+      <span class="ribbon__label" data-i18n="ribbonView"></span>
+      <div class="seg" id="view">
+        <button type="button" data-view="iso" class="is-active" data-i18n="viewIso"></button>
+        <button type="button" data-view="plan" data-i18n="viewPlan"></button>
+      </div>
+    </div>
+    <div class="ribbon__group" role="group" data-i18n-attr="aria-label:ariaExport">
+      <span class="ribbon__label" data-i18n="ribbonExport"></span>
       <button type="button" class="btn" id="dl-csv">CSV</button>
       <button type="button" class="btn" id="dl-json">JSON</button>
+    </div>
+    <div class="ribbon__group" role="group" data-i18n-attr="aria-label:ariaLang">
+      <span class="ribbon__label" data-i18n="ribbonLang"></span>
+      <div class="seg" id="lang">
+        <button type="button" data-lang="uk">УКР</button>
+        <button type="button" data-lang="en">ENG</button>
+      </div>
+    </div>
+    <div class="ribbon__group ribbon__group--walls" role="group" data-i18n-attr="aria-label:ariaWalls">
+      <span class="ribbon__label" data-i18n="ribbonWalls"></span>
+      <div class="seg" id="walls"></div>
+      <button type="button" class="btn" id="iso-walls" aria-pressed="false" data-i18n="wallsIso" data-i18n-attr="title:wallsIsoTitle"></button>
+      <span class="ribbon__label ribbon__label--gap" data-i18n="ribbonThick"></span>
+      <div class="seg" id="thick" data-i18n-attr="aria-label:ariaThick"></div>
     </div>
   </div>
 </header>
 
 <main class="sheet">
-  <h1 class="sheet__title">Цветовая палитра систем вентиляции</h1>
-  <p class="sheet__subtitle">Рекомендуемое кодирование воздуховодов (BIM / CAD)</p>
+  <h1 class="sheet__title" data-i18n="sheetTitle"></h1>
+  <p class="sheet__subtitle" data-i18n="sheetSubtitle"></p>
 
   <section class="note">
-    <p><b>Как читать.</b> Воздуховод показан в плане, как в Revit: боковые стенки — стандартный цвет группы
-      (<span class="chip chip--wall chip--supply">красный 255·0·0</span> у приточных,
-      <span class="chip chip--wall chip--exhaust">синий 0·0·255</span> у вытяжных),
-      внутри — заливка цветом системы. Нажмите на HEX или RGB, чтобы скопировать значение для фильтра вида.</p>
-    <p><b>Почему цвета повторяются.</b> Глаз уверенно различает на чертеже около десяти цветов. Поэтому системы 1–10 — десять
-      максимально разных оттенков, а 11–40 повторяют их с другой заливкой:
-      <b>П11 = П1 + штриховка</b>, П21 = П1 + сетка, П31 = П1 + точки.</p>
+    <p data-i18n-html="noteRead"></p>
+    <p data-i18n-html="noteSource"></p>
+    <p data-i18n-html="notePipes"></p>
   </section>
 
-  <section class="check" id="check" aria-label="Проверка различимости"></section>
+  <section class="check" id="check" data-i18n-attr="aria-label:ariaCheck"></section>
 
   <div id="groups"></div>
 
-  <section class="floor" aria-label="Пример этажа">
-    <h2 class="group__title">Проверка на «этаже»</h2>
-    <p class="floor__hint">Системы прокладываются рядом, как в коридоре. Двигайте ползунок и смотрите, не сливаются ли соседние.</p>
+  <section class="floor">
+    <h2 class="group__title" data-i18n="floorTitle"></h2>
+    <p class="floor__hint" data-i18n="floorHint"></p>
     <div class="floor__controls">
-      <label>Систем каждого вида: <output id="floor-n">10</output>
-        <input type="range" id="floor-range" min="2" max="40" value="10">
+      <label><span data-i18n="floorCount"></span> <output id="floor-n">8</output>
+        <input type="range" id="floor-range" min="2" max="20" value="8">
       </label>
       <div class="seg" id="floor-kind">
-        <button type="button" data-kind="supply">Приточные</button>
-        <button type="button" data-kind="exhaust">Вытяжные</button>
-        <button type="button" data-kind="both" class="is-active">Вместе</button>
+        <button type="button" data-kind="supply" data-i18n="floorSupply"></button>
+        <button type="button" data-kind="exhaust" data-i18n="floorExhaust"></button>
+        <button type="button" data-kind="both" class="is-active" data-i18n="floorBoth"></button>
       </div>
     </div>
     <div class="floor__plan" id="floor-plan"></div>
   </section>
 
   <footer class="titleblock">
-    <div><span>Проект</span><b>Палитра систем вентиляции</b></div>
-    <div><span>Приточные</span><b>П1–П40</b></div>
-    <div><span>Вытяжные</span><b>В1–В40</b></div>
-    <div><span>Следующий этап</span><b>Приточно-вытяжные (ПВ)</b></div>
+    <div><span data-i18n="tbProject"></span><b data-i18n="tbProjectVal"></b></div>
+    <div><span data-i18n="tbSupply"></span><b>П1–П20</b></div>
+    <div><span data-i18n="tbExhaust"></span><b>В1–В20</b></div>
+    <div><span data-i18n="tbNext"></span><b data-i18n="tbNextVal"></b></div>
   </footer>
 </main>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+<script src="js/i18n.js"></script>
 <script src="js/palette.js"></script>
 <script src="js/app.js"></script>
 </body>

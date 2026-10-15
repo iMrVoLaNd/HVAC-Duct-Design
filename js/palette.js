@@ -1,10 +1,9 @@
 /*
- * Палитра систем вентиляции.
+ * Палитра систем вентиляции — в стиле эталонного скриншота (матовые «сигнальные» цвета).
  *
- * Идея: 10 базовых оттенков на группу (приточные / вытяжные), расставленных так,
- * чтобы соседние по номеру системы (П1 и П2, П2 и П3 ...) сильно отличались.
- * Дальше палитра повторяется «со сдвигом»: П11-П20 — те же оттенки, но светлые
- * и в другом порядке, П21-П30 — тёмные, П31-П40 — с белой штриховкой.
+ * По 20 цветов на группу, подобраны вручную по референсам. Приточные — земляная палитра
+ * (терракот, зелёные, горчица, охра, кирпич), цвета П1–П7 и П9–П12 взяты точно из легенд референсов.
+ * Вытяжные — холодные, серые и коричневые; В1–В3 — плашки с первого скриншота.
  *
  * Модуль работает и в браузере (window.Palette), и в Node (require).
  */
@@ -74,96 +73,128 @@
       + Rt * (dCp / Sc) * (dHp / Sh));
   }
 
-  function mix(rgb, target, t) {
-    return rgb.map(function (v, i) { return v + (target[i] - v) * t; });
-  }
+  /* ---------- цвета систем ---------- */
+  // Порядок = номер системы: П1, П2, ... / В1, В2, ...
+  // Хотите другой цвет — поменяйте HEX здесь, проверка на странице пересчитается сама.
 
-  /* ---------- базовые оттенки (по 10 на группу) ---------- */
-  // Порядок важен: соседние в списке — максимально разные.
-
-  var BASE = {
+  var COLORS = {
+    // Приточные — земляная палитра с референсов (терракот, зелёные, горчица, охра, кирпич) плюс жёлтые, персиковые
+    // и песочные тона. По 20 цветов на группу, порядок подобран так, чтобы соседние номера сильно отличались
+    // (ΔE соседей ≥ 23, любые 5 подряд ≥ 12). ref: true — цвет взят точно из ваших референсов.
     supply: [
-      { name: 'Красный',        hex: '#C8372D' },
-      { name: 'Зелёный',        hex: '#3FA34D' },
-      { name: 'Фиолетовый',     hex: '#7E3FA8' },
-      { name: 'Жёлтый',         hex: '#F5C518' },
-      { name: 'Розовый',        hex: '#E8468F' },
-      { name: 'Тёмно-зелёный',  hex: '#1F6B43' },
-      { name: 'Оранжевый',      hex: '#F47B20' },
-      { name: 'Бордовый',       hex: '#7A1E33' },
-      { name: 'Лаймовый',       hex: '#A5D12B' },
-      { name: 'Лавандовый',     hex: '#B9A2E0' }
+      { name: 'Ochre orange', nameUk: 'Охристо-помаранчевий', hex: '#E37C21', ref: true },
+      { name: 'Leaf green', nameUk: 'Листяно-зелений', hex: '#4E7D3A' },
+      { name: 'Mustard yellow', nameUk: 'Гірчично-жовтий', hex: '#CBA453', ref: true },
+      { name: 'Olive green', nameUk: 'Оливково-зелений', hex: '#89B07F', ref: true },
+      { name: 'Rust', nameUk: 'Іржавий', hex: '#A64B2A' },
+      { name: 'Light yellow', nameUk: 'Світло-жовтий', hex: '#F2DE7B' },
+      { name: 'Dusty lilac', nameUk: 'Пильно-бузковий', hex: '#8F7694' },
+      { name: 'Salmon', nameUk: 'Лососевий', hex: '#D98A6C' },
+      { name: 'Dark green', nameUk: 'Темно-зелений', hex: '#316549', ref: true },
+      { name: 'Amber', nameUk: 'Бурштиновий', hex: '#F0A91B' },
+      { name: 'Sage', nameUk: 'Шавлієвий', hex: '#7C8B5A' },
+      { name: 'Brick orange', nameUk: 'Цегляно-помаранчевий', hex: '#C94E00', ref: true },
+      { name: 'Lime', nameUk: 'Лаймовий', hex: '#A3B04A' },
+      { name: 'Burgundy red', nameUk: 'Бордово-червоний', hex: '#9D382F', ref: true },
+      { name: 'Peach', nameUk: 'Персиковий', hex: '#E8A878' },
+      { name: 'Olive khaki', nameUk: 'Оливково-хакі', hex: '#596232', ref: true },
+      { name: 'Bright yellow', nameUk: 'Яскраво-жовтий', hex: '#EAC22E' },
+      { name: 'Grass green', nameUk: 'Трав’янисто-зелений', hex: '#699D5A', ref: true },
+      { name: 'Terracotta red', nameUk: 'Теракотово-червоний', hex: '#C35B44', ref: true },
+      { name: 'Sand', nameUk: 'Піщаний', hex: '#B59B6E' }
     ],
+    // Вытяжные — холодные, серые и коричневые; В1–В3 были плашками с первого скриншота.
     exhaust: [
-      { name: 'Синий',          hex: '#1F5FD0' },
-      { name: 'Коричневый',     hex: '#7A4B2B' },
-      { name: 'Голубой',        hex: '#55C1F0' },
-      { name: 'Графитовый',     hex: '#4A4F57' },
-      { name: 'Бирюзовый',      hex: '#16A58F' },
-      { name: 'Песочный',       hex: '#C9AE86' },
-      { name: 'Серый',          hex: '#8A949E' },
-      { name: 'Тёмно-синий',    hex: '#172E73' },
-      { name: 'Изумрудный',     hex: '#0B6B5D' },
-      { name: 'Оливковый',      hex: '#6B6B2F' }
+      { name: 'Taupe', nameUk: 'Тауп', hex: '#7D6E63' },
+      { name: 'Turquoise', nameUk: 'Бірюзовий', hex: '#1F8A8A' },
+      { name: 'Blue', nameUk: 'Синій', hex: '#0150B7', ref: true },
+      { name: 'Chestnut', nameUk: 'Каштановий', hex: '#6B3B15' },
+      { name: 'Grey', nameUk: 'Сірий', hex: '#8A949E' },
+      { name: 'Dark teal', nameUk: 'Темний синьо-зелений', hex: '#2F4B46', ref: true },
+      { name: 'Wine brown', nameUk: 'Винно-коричневий', hex: '#553C3F', ref: true },
+      { name: 'Light blue', nameUk: 'Блакитний', hex: '#4A9AD6' },
+      { name: 'Olive', nameUk: 'Оливковий', hex: '#77783E' },
+      { name: 'Sea blue', nameUk: 'Морський', hex: '#2B6F8A' },
+      { name: 'Coffee', nameUk: 'Кавовий', hex: '#A6785A' },
+      { name: 'Navy', nameUk: 'Темно-синій', hex: '#1F3563' },
+      { name: 'Grey-green', nameUk: 'Сіро-зелений', hex: '#7E9189' },
+      { name: 'Dark brown', nameUk: 'Темно-коричневий', hex: '#433A2D', ref: true },
+      { name: 'Plum', nameUk: 'Сливовий', hex: '#6B4E71' },
+      { name: 'Dark emerald', nameUk: 'Темний смарагд', hex: '#17695B' },
+      { name: 'Steel blue', nameUk: 'Сталевий синій', hex: '#5C7FA3' },
+      { name: 'Brown', nameUk: 'Коричневий', hex: '#8A5A3C' },
+      { name: 'Slate', nameUk: 'Сланцевий', hex: '#405364', ref: true },
+      { name: 'Warm grey', nameUk: 'Теплий сірий', hex: '#8F8A82' }
     ]
   };
 
-  // Цвет боковых стенок воздуховода — «стандартные» красный и синий.
-  var WALL = { supply: '#FF0000', exhaust: '#0000FF' };
-  var PREFIX = { supply: 'П', exhaust: 'В' };
-
-  /* ---------- «сдвиги» для 2-го, 3-го и 4-го десятка ---------- */
-  // Цветов, которые глаз уверенно различает на чертеже, около 10-12. Поэтому
-  // для систем 11-40 оттенки повторяются, но меняется тип заливки
-  // (в Revit это «образец штриховки» в фильтре вида): П11 = П1 + штриховка.
-  // Системы с разным типом заливки считаются различимыми, даже если цвет тот же.
-
-  var TIERS = [
-    { id: 'solid', label: 'сплошная',               pattern: 'solid' },
-    { id: 'diag',  label: 'диагональная штриховка', pattern: 'diag'  },
-    { id: 'cross', label: 'сетка',                  pattern: 'cross' },
-    { id: 'dots',  label: 'точки',                  pattern: 'dots'  }
+  // Трубопроводы системы кондиционирования (схема К1). Цвета сняты со схемы-референса: фиолетовый, розовый
+  // и бирюзово-зелёный — плашки легенды, оранжевый — освещённая сторона трубы (в легенде у него плашки нет).
+  // Назначение: газ — зелёный, жидкость — фиолетовый, дренаж — оранжевый, рециркуляция — розовый.
+  var PIPES = [
+    { code: 'К1.1', name: 'Gas · green',           nameUk: 'Газ · зелений',          hex: '#02807D', ref: true },
+    { code: 'К1.2', name: 'Liquid · purple',       nameUk: 'Рідина · фіолетовий',    hex: '#750286', ref: true },
+    { code: 'К1.3', name: 'Drain · orange',        nameUk: 'Дренаж · оранжевий',     hex: '#DF750E', ref: true },
+    { code: 'К1.4', name: 'Recirculation · pink',  nameUk: 'Рециркуляція · рожевий', hex: '#FA007D', ref: true }
   ];
 
+  // Цвет боковых стенок воздуховода. По ГОСТ приточные — красные, вытяжные — синие, поэтому первые пять вариантов —
+  // разные оттенки красного и синего: от чистых (стандарт Revit) до приглушённых и тёмных. Чёрные и серые — для случая,
+  // когда группу различают по легенде, а не по цвету линии. Чем темнее оттенок, тем «тяжелее» он выглядит на плане.
+  var WALL_PRESETS = [
+    { id: 'standard', supply: '#FF0000', exhaust: '#0000FF' },
+    { id: 'signal',   supply: '#E32B1F', exhaust: '#1A3FD6' },
+    { id: 'soft',     supply: '#C0392B', exhaust: '#1F4FD8' },
+    { id: 'muted',    supply: '#A33B30', exhaust: '#2A4F9E' },
+    { id: 'dark',     supply: '#6B1A14', exhaust: '#0B2257' },
+    { id: 'black',    supply: '#151515', exhaust: '#151515' },
+    { id: 'grey',     supply: '#6E6E6E', exhaust: '#6E6E6E' }
+  ];
+
+  // Толщина линии боковых стенок (в единицах карточки; на «этаже» и в объёме пересчитывается).
+  var WALL_WIDTHS = [
+    { id: 'thin',   w: 1.0 },
+    { id: 'medium', w: 1.8 },
+    { id: 'thick',  w: 3.0 }
+  ];
+  var PREFIX = { supply: 'П', exhaust: 'В', pipes: 'К' };
+
   function buildGroup(kind) {
-    var base = BASE[kind], out = [];
-    TIERS.forEach(function (tier, t) {
-      base.forEach(function (b, j) {
-        var rgb = hexToRgb(b.hex);
-        var n = t * base.length + j + 1;
-        out.push({
-          kind: kind,
-          n: n,
-          code: PREFIX[kind] + n,
-          name: b.name,
-          tier: tier.id,
-          pattern: tier.pattern,
-          wall: WALL[kind],
-          hex: b.hex,
-          rgb: rgb,
-          lab: rgbToLab(rgb)
-        });
-      });
+    return COLORS[kind].map(function (c, i) {
+      var rgb = hexToRgb(c.hex);
+      return {
+        kind: kind,
+        n: i + 1,
+        code: PREFIX[kind] + (i + 1),
+        name: c.name,
+        nameUk: c.nameUk,
+        reference: !!c.ref,
+        hex: c.hex,
+        rgb: rgb,
+        lab: rgbToLab(rgb)
+      };
     });
-    return out;
   }
 
-  var SYSTEMS = { supply: buildGroup('supply'), exhaust: buildGroup('exhaust') };
+  // Трубопроводы: коды (К1.1…) заданы вручную, а не по номеру.
+  function buildPipes() {
+    return PIPES.map(function (c, i) {
+      var rgb = hexToRgb(c.hex);
+      return { kind: 'pipes', n: i + 1, code: c.code, name: c.name, nameUk: c.nameUk, reference: !!c.ref,
+        hex: c.hex, rgb: rgb, lab: rgbToLab(rgb) };
+    });
+  }
+
+  var SYSTEMS = { supply: buildGroup('supply'), exhaust: buildGroup('exhaust'), pipes: buildPipes() };
 
   /* ---------- проверка различимости ---------- */
-
-  // Разница между двумя системами: ΔE по цвету, а если заливка разная
-  // (сплошная / штриховка / сетка) — считаем системы различимыми (Infinity).
-  function distance(a, b) {
-    return a.pattern !== b.pattern ? Infinity : deltaE(a.lab, b.lab);
-  }
 
   // Худшая пара среди любых двух систем в скользящем окне из `size` номеров подряд.
   function windowStats(list, size) {
     var min = Infinity, pair = null;
     for (var i = 0; i < list.length; i++) {
       for (var j = i + 1; j < list.length && j < i + size; j++) {
-        var d = distance(list[i], list[j]);
+        var d = deltaE(list[i].lab, list[j].lab);
         if (d < min) { min = d; pair = [list[i].code, list[j].code]; }
       }
     }
@@ -171,9 +202,9 @@
   }
 
   var api = {
-    BASE: BASE, WALL: WALL, PREFIX: PREFIX, TIERS: TIERS, SYSTEMS: SYSTEMS,
+    COLORS: COLORS, PIPES: PIPES, WALL_PRESETS: WALL_PRESETS, WALL_WIDTHS: WALL_WIDTHS, PREFIX: PREFIX, SYSTEMS: SYSTEMS,
     hexToRgb: hexToRgb, rgbToHex: rgbToHex, rgbToLab: rgbToLab, deltaE: deltaE,
-    distance: distance, windowStats: windowStats
+    windowStats: windowStats
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

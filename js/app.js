@@ -2,63 +2,184 @@
   'use strict';
 
   var P = window.Palette;
-  var KIND_TITLE = { supply: 'Приточные системы (П)', exhaust: 'Вытяжные системы (В)' };
+  var t = window.I18N.t;
+  // Название цвета на текущем языке.
+  function nm(s) { return window.I18N.getLang() === 'uk' ? s.nameUk : s.name; }
+  var view = 'iso';           // 'iso' — объём, как на референсах; 'plan' — план Revit со стенками
+  var filter = 'all';
+  var isoWalls = false;       // подсвечивать ли боковые стенки (длинные рёбра) в объёмном виде
+  var wallId = 'soft';        // вариант цвета боковых стенок (см. Palette.WALL_PRESETS)
 
-  /* ---------- общие заливки (штриховки) ---------- */
+  function wallPreset() {
+    return P.WALL_PRESETS.filter(function (w) { return w.id === wallId; })[0];
+  }
+  function wallOf(kind) { return wallPreset()[kind]; }
 
-  function fillRef(s) {
-    return s.pattern === 'solid' ? s.hex : 'url(#fill-' + s.kind + '-' + s.n + ')';
+  var widthId = 'medium';     // толщина линии стенок (см. Palette.WALL_WIDTHS)
+  function wallW() {
+    return P.WALL_WIDTHS.filter(function (w) { return w.id === widthId; })[0].w;
+  }
+  function rgbText(hex) { return P.hexToRgb(hex).join('·'); }
+
+  // Применить выбранный цвет стенок: CSS-переменные (рамка заголовков, плашки) и подписи.
+  function applyWalls() {
+    var root = document.documentElement.style;
+    root.setProperty('--supply', wallOf('supply'));
+    root.setProperty('--exhaust', wallOf('exhaust'));
+    document.getElementById('chip-supply').textContent = t('chipSupply', rgbText(wallOf('supply')));
+    document.getElementById('chip-exhaust').textContent = t('chipExhaust', rgbText(wallOf('exhaust')));
   }
 
-  function buildDefs() {
-    var defs = document.querySelector('#defs defs');
-    var html = '';
-    ['supply', 'exhaust'].forEach(function (kind) {
-      P.SYSTEMS[kind].forEach(function (s) {
-        var id = 'fill-' + kind + '-' + s.n;
-        if (s.pattern === 'diag') {
-          html += '<pattern id="' + id + '" width="7" height="7" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">'
-            + '<rect width="7" height="7" fill="' + s.hex + '"/>'
-            + '<line x1="0" y1="0" x2="0" y2="7" stroke="#fff" stroke-width="1.8" stroke-opacity=".8"/></pattern>';
-        } else if (s.pattern === 'cross') {
-          html += '<pattern id="' + id + '" width="8" height="8" patternUnits="userSpaceOnUse">'
-            + '<rect width="8" height="8" fill="' + s.hex + '"/>'
-            + '<path d="M0 .5H8M.5 0V8" stroke="#fff" stroke-width="1.4" stroke-opacity=".8" fill="none"/></pattern>';
-        } else if (s.pattern === 'dots') {
-          html += '<pattern id="' + id + '" width="7" height="7" patternUnits="userSpaceOnUse">'
-            + '<rect width="7" height="7" fill="' + s.hex + '"/>'
-            + '<circle cx="3.5" cy="3.5" r="1.5" fill="#fff" fill-opacity=".85"/></pattern>';
-        }
-      });
+  function renderWallButtons() {
+    document.getElementById('walls').innerHTML = P.WALL_PRESETS.map(function (w) {
+      return '<button type="button" data-wall="' + w.id + '"' + (w.id === wallId ? ' class="is-active"' : '')
+        + ' title="' + t('wallTitle', w.supply, w.exhaust) + '">'
+        + '<i class="dot" style="background:' + w.supply + '"></i><i class="dot" style="background:' + w.exhaust + '"></i>'
+        + t('wall_' + w.id) + '</button>';
+    }).join('');
+    document.getElementById('thick').innerHTML = P.WALL_WIDTHS.map(function (w) {
+      return '<button type="button" data-thick="' + w.id + '"' + (w.id === widthId ? ' class="is-active"' : '') + '>'
+        + t('thick_' + w.id) + '</button>';
+    }).join('');
+  }
+
+  /* ---------- воздуховод в объёме (как BIM «Shaded with Edges» на референсах) ---------- */
+
+  // Осветлить (t > 0) или затемнить (t < 0) цвет. Грани воздуховода — оттенки одного цвета системы.
+  function shade(hex, t) {
+    var target = t > 0 ? 255 : 0, k = Math.abs(t);
+    return P.rgbToHex(P.hexToRgb(hex).map(function (v) { return v + (target - v) * k; }));
+  }
+
+  function add(p, v, k) { k = k === undefined ? 1 : k; return [p[0] + v[0] * k, p[1] + v[1] * k]; }
+  function pts(list) { return list.map(function (p) { return p[0].toFixed(1) + ',' + p[1].toFixed(1); }).join(' '); }
+  function poly(list, fill) {
+    return '<polygon points="' + pts(list) + '" fill="' + fill + '" stroke="#1d1d1d" stroke-width=".9" stroke-linejoin="round"/>';
+  }
+
+  // Боковая грань — ровно цвет системы (чтобы HEX на карточке совпадал с тем, что видно), верх светлее.
+  function ductIsoSvg(s) {
+    var A = [60, 118], L = [132, -44], H = [0, -34], D = [-28, -15], T = [-5, 1.7];
+    var AH = add(A, H), AL = add(A, L), ALH = add(AL, H);
+    var out = '<svg class="duct" viewBox="0 0 240 140" role="img" aria-label="' + t('ductAria', s.code) + '">';
+
+    // подвес
+    var hang = add(add(AH, L, 0.5), D, 0.5);
+    out += '<line x1="' + hang[0] + '" y1="' + hang[1] + '" x2="' + hang[0] + '" y2="10" stroke="#6b6b6b" stroke-width="1.1"/>';
+
+    // боковая и верхняя грани
+    out += poly([A, AL, ALH, AH], s.hex);
+    out += poly([AH, ALH, add(ALH, D), add(AH, D)], shade(s.hex, 0.14));
+
+    // боковые стенки: длинные рёбра воздуховода цветом группы (если включено)
+    if (isoWalls) {
+      var edge = function (p, q) {
+        return '<line x1="' + p[0].toFixed(1) + '" y1="' + p[1].toFixed(1) + '" x2="' + q[0].toFixed(1) + '" y2="' + q[1].toFixed(1)
+          + '" stroke="' + wallOf(s.kind) + '" stroke-width="' + (wallW() * 1.05).toFixed(2) + '" stroke-linecap="round"/>';
+      };
+      out += edge(A, AL) + edge(AH, ALH) + edge(add(AH, D), add(ALH, D));
+    }
+
+    // стыки (рёбра жёсткости) — две полосы поперёк воздуховода
+    [0.36, 0.68].forEach(function (u) {
+      var w = 0.05;
+      out += poly([add(A, L, u), add(A, L, u + w), add(add(A, L, u + w), H), add(add(A, L, u), H)], shade(s.hex, -0.1));
+      out += poly([add(AH, L, u), add(AH, L, u + w), add(add(AH, L, u + w), D), add(add(AH, L, u), D)], shade(s.hex, 0.06));
     });
-    defs.innerHTML = html;
+
+    // фланец на ближнем торце с тёмным проёмом
+    function fp(sd, th) { return add(add(add(A, T), D, sd), H, th); }
+    out += poly([fp(-0.14, -0.14), fp(1.14, -0.14), fp(1.14, 1.14), fp(-0.14, 1.14)], shade(s.hex, -0.08));
+    out += poly([fp(0.15, 0.15), fp(0.85, 0.15), fp(0.85, 0.85), fp(0.15, 0.85)], '#2b2b2b');
+    out += poly([fp(0.24, 0.24), fp(0.76, 0.24), fp(0.76, 0.76), fp(0.24, 0.76)], '#575757');
+
+    // направление потока — стрелка под воздуховодом
+    var a0 = add(add(A, [0, 16]), L, 0.2), a1 = add(add(A, [0, 16]), L, 0.8);
+    var ux = L[0] / Math.hypot(L[0], L[1]), uy = L[1] / Math.hypot(L[0], L[1]);
+    var tip = s.kind === 'supply' ? a1 : a0, tail = s.kind === 'supply' ? a0 : a1, dir = s.kind === 'supply' ? 1 : -1;
+    var wing = function (sign) {
+      return [tip[0] - dir * (ux * 7) + sign * (-uy * 3.5), tip[1] - dir * (uy * 7) + sign * (ux * 3.5)];
+    };
+    out += '<path d="M' + tail[0] + ' ' + tail[1] + 'L' + tip[0] + ' ' + tip[1]
+      + 'M' + wing(1)[0] + ' ' + wing(1)[1] + 'L' + tip[0] + ' ' + tip[1] + 'L' + wing(-1)[0] + ' ' + wing(-1)[1]
+      + '" stroke="#1d1d1d" stroke-width="1.2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>';
+
+    // марка системы в кружке с выноской, как на референсах
+    var anchor = add(add(AH, L, 0.82), D, 0.5);
+    out += '<line x1="' + anchor[0] + '" y1="' + anchor[1] + '" x2="199" y2="34" stroke="#1d1d1d" stroke-width=".8"/>'
+      + '<circle cx="213" cy="30" r="14" fill="#fff" stroke="#1d1d1d" stroke-width=".9"/>'
+      + '<text x="213" y="34" text-anchor="middle" class="duct__tag duct__tag--iso">' + s.code + '</text>';
+
+    return out + '</svg>';
   }
 
-  /* ---------- рисование воздуховода в плане ---------- */
+  /* ---------- воздуховод в плане (Revit: боковые стенки красные / синие) ---------- */
 
-  // Карточка: воздуховод 300x200 в плане — заливка, боковые стенки, фланцы, осевая, стрелка потока, марка.
+  // Фланцы: по краям (крупнее) и между секциями — белые прямоугольники с чёрным контуром, выступают за стенки.
+  // Как в плане Revit: воздуховод делится стыками на 5 секций.
+  function flangesSvg(x1, x2, y1, y2, endW, endOut, midW, midOut, stroke) {
+    var out = '', i;
+    function rect(cx, w, out_) {
+      return '<rect x="' + (cx - w / 2).toFixed(1) + '" y="' + (y1 - out_) + '" width="' + w + '" height="' + (y2 - y1 + 2 * out_)
+        + '" fill="#fff" stroke="#111" stroke-width="' + stroke + '"/>';
+    }
+    for (i = 1; i < 5; i++) out += rect(x1 + (x2 - x1) * i / 5, midW, midOut);
+    return out + rect(x1, endW, endOut) + rect(x2, endW, endOut);
+  }
+
+  // Карточка (план Revit): заливка цветом системы, боковые стенки, фланцы-стыки, номер системы и выноска.
   function ductSvg(s) {
-    var x1 = 34, x2 = 206, y1 = 34, y2 = 76, ym = 55;
-    var supply = s.kind === 'supply';
-    var arrow = supply
-      ? 'M70 21H170M162 16L170 21L162 26'
-      : 'M170 21H70M78 16L70 21L78 26';
-    return '<svg class="duct" viewBox="0 0 240 112" role="img" aria-label="Воздуховод системы ' + s.code + '">'
-      + '<rect x="' + x1 + '" y="' + y1 + '" width="' + (x2 - x1) + '" height="' + (y2 - y1) + '" fill="' + fillRef(s) + '"/>'
-      + '<path d="M' + x1 + ' ' + y1 + 'H' + x2 + 'M' + x1 + ' ' + y2 + 'H' + x2 + '" stroke="' + s.wall + '" stroke-width="4.5" fill="none"/>'
-      // фланцы
-      + '<rect x="' + (x1 - 6) + '" y="' + (y1 - 6) + '" width="6" height="' + (y2 - y1 + 12) + '" fill="#fff" stroke="#111" stroke-width="1"/>'
-      + '<rect x="' + x2 + '" y="' + (y1 - 6) + '" width="6" height="' + (y2 - y1 + 12) + '" fill="#fff" stroke="#111" stroke-width="1"/>'
-      // осевая линия
-      + '<path d="M14 ' + ym + 'H226" stroke="#111" stroke-width=".8" stroke-dasharray="14 3 2 3" fill="none"/>'
-      // направление потока
-      + '<path d="' + arrow + '" stroke="#111" stroke-width="1.2" fill="none"/>'
-      // марка системы
-      + '<rect x="104" y="44" width="32" height="22" rx="2" fill="#fff" stroke="#111" stroke-width="1"/>'
-      + '<text x="120" y="60" text-anchor="middle" class="duct__tag">' + s.code + '</text>'
-      // размерная линия
-      + '<path d="M' + x1 + ' 95H' + x2 + 'M' + x1 + ' 90V100M' + x2 + ' 90V100" stroke="#111" stroke-width=".8" fill="none"/>'
-      + '<text x="120" y="108" text-anchor="middle" class="duct__dim">L = 2000</text>'
+    var x1 = 34, x2 = 206, y1 = 34, y2 = 78;
+    return '<svg class="duct" viewBox="0 0 240 100" role="img" aria-label="' + t('ductAria', s.code) + '">'
+      + '<rect x="' + x1 + '" y="' + y1 + '" width="' + (x2 - x1) + '" height="' + (y2 - y1) + '" fill="' + s.hex + '"/>'
+      + '<path d="M' + x1 + ' ' + y1 + 'H' + x2 + 'M' + x1 + ' ' + y2 + 'H' + x2 + '" stroke="' + wallOf(s.kind) + '" stroke-width="' + wallW() + '" fill="none"/>'
+      + flangesSvg(x1, x2, y1, y2, 6, 7, 4.5, 4, 1)
+      // выноска: от номера системы внутрь воздуховода
+      + '<line x1="127" y1="21" x2="115" y2="62" stroke="#111" stroke-width="1"/>'
+      + '<text x="128" y="16" text-anchor="middle" class="duct__tag duct__tag--plan">' + s.code + '</text>'
+      + '</svg>';
+  }
+
+  /* ---------- трубы (кондиционирование, схема К1) ---------- */
+
+  // Труба в объёме: цилиндр вдоль оси a→b с контуром, бликом и тенью и открытым торцом (без фитингов).
+  function pipeIsoSvg(s) {
+    var a = [52, 112], b = [188, 64];
+    var dx = b[0] - a[0], dy = b[1] - a[1], len = Math.hypot(dx, dy);
+    var ux = dx / len, uy = dy / len, nx = -uy, ny = ux;          // вдоль оси и перпендикуляр на экране
+    var ang = Math.atan2(dy, dx) * 180 / Math.PI, r = 10.5;
+    function at(f, off) { return [a[0] + dx * f + nx * off, a[1] + dy * f + ny * off]; }
+    function ln(p, q, color, w) {
+      return '<line x1="' + p[0].toFixed(1) + '" y1="' + p[1].toFixed(1) + '" x2="' + q[0].toFixed(1) + '" y2="' + q[1].toFixed(1)
+        + '" stroke="' + color + '" stroke-width="' + w + '"/>';
+    }
+    function ell(c, rx, ry, fill, stroke) {
+      return '<ellipse cx="' + c[0].toFixed(1) + '" cy="' + c[1].toFixed(1) + '" rx="' + rx + '" ry="' + ry + '" transform="rotate('
+        + ang.toFixed(1) + ' ' + c[0].toFixed(1) + ' ' + c[1].toFixed(1) + ')" fill="' + fill + '" stroke="' + stroke + '" stroke-width=".9"/>';
+    }
+    var out = '<svg class="duct" viewBox="0 0 240 140" role="img" aria-label="' + t('pipeAria', s.code) + '">';
+    out += ell(b, 4, r, s.hex, '#1d1d1d');                         // дальний торец
+    out += ln(a, b, '#1d1d1d', (2 * r + 1.6).toFixed(1));          // контур
+    out += ln(a, b, s.hex, (2 * r - 0.4).toFixed(1));              // тело = цвет системы
+    out += ln(at(0, r * 0.52), at(1, r * 0.52), shade(s.hex, -0.2), 5);   // тень снизу
+    out += ln(at(0, -r * 0.5), at(1, -r * 0.5), shade(s.hex, 0.25), 3.4); // блик сверху
+    // ближний открытый торец с тёмным отверстием
+    out += ell(a, 4, r, shade(s.hex, 0.12), '#1d1d1d') + ell(a, 2.2, r - 3.6, '#2b2b2b', '#1d1d1d');
+    // марка в кружке с выноской
+    var anchor = at(0.8, -2);
+    out += '<line x1="' + anchor[0].toFixed(1) + '" y1="' + anchor[1].toFixed(1) + '" x2="199" y2="34" stroke="#1d1d1d" stroke-width=".8"/>'
+      + '<circle cx="213" cy="30" r="14" fill="#fff" stroke="#1d1d1d" stroke-width=".9"/>'
+      + '<text x="213" y="34" text-anchor="middle" class="duct__tag duct__tag--iso">' + s.code + '</text>';
+    return out + '</svg>';
+  }
+
+  // Труба в плане: узкая полоса цвета системы (без фитингов), номер и выноска.
+  function pipePlanSvg(s) {
+    var x1 = 34, x2 = 206, y1 = 45, y2 = 67;
+    return '<svg class="duct" viewBox="0 0 240 100" role="img" aria-label="' + t('pipeAria', s.code) + '">'
+      + '<rect x="' + x1 + '" y="' + y1 + '" width="' + (x2 - x1) + '" height="' + (y2 - y1) + '" fill="' + s.hex + '" stroke="#1d1d1d" stroke-width="1.2"/>'
+      + '<line x1="127" y1="26" x2="115" y2="58" stroke="#111" stroke-width="1"/>'
+      + '<text x="128" y="21" text-anchor="middle" class="duct__tag duct__tag--plan">' + s.code + '</text>'
       + '</svg>';
   }
 
@@ -67,55 +188,80 @@
   function cardHtml(s) {
     var rgb = s.rgb.join(', ');
     return '<article class="card" data-kind="' + s.kind + '">'
-      + ductSvg(s)
+      + (s.kind === 'pipes' ? (view === 'iso' ? pipeIsoSvg(s) : pipePlanSvg(s)) : (view === 'iso' ? ductIsoSvg(s) : ductSvg(s)))
       + '<div class="card__meta">'
-      + '<div class="card__name"><b>' + s.code + '</b> ' + s.name + '</div>'
+      + '<div class="card__name"><b>' + s.code + '</b> ' + nm(s)
+      + (s.reference ? ' <span class="badge" title="' + t('badgeTitle') + '">' + t('badge') + '</span>' : '') + '</div>'
       + '<div class="card__vals">'
-      + '<button type="button" class="val" data-copy="' + s.hex + '" title="Скопировать HEX">' + s.hex + '</button>'
-      + '<button type="button" class="val" data-copy="' + rgb + '" title="Скопировать RGB">' + s.rgb.join(' · ') + '</button>'
+      + '<button type="button" class="val" data-copy="' + s.hex + '" title="' + t('copyHex') + '">' + s.hex + '</button>'
+      + '<button type="button" class="val" data-copy="' + rgb + '" title="' + t('copyRgb') + '">' + s.rgb.join(' · ') + '</button>'
       + '</div></div></article>';
   }
 
+  // Таблица цветового кодирования — квадраты с кодом, как внизу скриншота-эталона.
+  function swatchTable(list) {
+    return '<div class="swatches">' + list.map(function (s) {
+      return '<div class="swatch"><i style="background:' + s.hex + '"></i><span>' + s.code + '</span></div>';
+    }).join('') + '</div>';
+  }
+
+  var TITLE_KEY = { supply: 'titleSupply', exhaust: 'titleExhaust', pipes: 'titlePipes' };
+
   function render() {
     var out = '';
-    ['supply', 'exhaust'].forEach(function (kind) {
+    ['supply', 'exhaust', 'pipes'].forEach(function (kind) {
       var list = P.SYSTEMS[kind], pre = P.PREFIX[kind];
+      var range = kind === 'pipes' ? list[0].code + '–' + list[list.length - 1].code : pre + '1–' + pre + list.length;
       out += '<section class="group group--' + kind + '" data-kind="' + kind + '">'
-        + '<h2 class="group__title">' + KIND_TITLE[kind] + ' <small>' + pre + '1–' + pre + list.length
-        + ' · стенки RGB ' + P.hexToRgb(P.WALL[kind]).join('·') + '</small></h2>';
-      P.TIERS.forEach(function (tier, t) {
-        var a = t * 10 + 1, b = t * 10 + 10;
-        out += '<h3 class="tier">' + pre + a + '–' + pre + b + ' <span>' + tier.label + '</span></h3>'
-          + '<div class="grid">' + list.slice(t * 10, t * 10 + 10).map(cardHtml).join('') + '</div>';
-      });
+        + '<h2 class="group__title">' + t(TITLE_KEY[kind]) + ' <small>' + range
+        + (view === 'plan' && kind !== 'pipes' ? t('wallsRgb', rgbText(wallOf(kind))) : '') + '</small></h2>'
+        + swatchTable(list);
+      out += '<div class="grid">' + list.map(cardHtml).join('') + '</div>';
       out += '</section>';
     });
     document.getElementById('groups').innerHTML = out;
+    applyFilter();
+  }
+
+  function applyFilter() {
+    document.querySelectorAll('.group').forEach(function (g) {
+      g.hidden = filter !== 'all' && g.dataset.kind !== filter;
+    });
   }
 
   /* ---------- проверка различимости ---------- */
 
   function quality(de) {
-    if (de >= 20) return 'отлично';
-    if (de >= 15) return 'хорошо';
-    return 'на пределе';
+    if (de >= 20) return t('q20');
+    if (de >= 15) return t('q15');
+    if (de >= 10) return t('q10');
+    return t('q0');
   }
 
   function renderCheck() {
-    var rows = ['supply', 'exhaust'].map(function (kind) {
-      var st = P.windowStats(P.SYSTEMS[kind], 10);
-      var pre = P.PREFIX[kind];
-      return '<tr><th>' + pre + '</th>'
-        + '<td><b>' + st.min.toFixed(1) + '</b></td>'
-        + '<td>' + st.pair[0] + ' и ' + st.pair[1] + '</td>'
-        + '<td class="q">' + quality(st.min) + '</td></tr>';
-    }).join('');
+    var rows = '';
+    ['supply', 'exhaust', 'pipes'].forEach(function (kind) {
+      var list = P.SYSTEMS[kind], pre = P.PREFIX[kind];
+      var label = kind === 'pipes' ? list[0].code + '–' + list[list.length - 1].code : pre + '1–' + pre + list.length;
+      // у труб всего несколько цветов — смотрим только все пары
+      var scopes = kind === 'pipes' ? [[t('rowAll'), list.length]]
+        : [[t('rowNeighbors'), 2], [t('rowWindow'), 5], [t('rowAll'), list.length]];
+      scopes.forEach(function (sc) {
+        var st = P.windowStats(list, sc[1]);
+        var names = st.pair.map(function (code) {
+          return code + ' ' + nm(list.filter(function (s) { return s.code === code; })[0]);
+        });
+        rows += '<tr><th>' + label + ' · ' + sc[0] + '</th>'
+          + '<td><b>' + st.min.toFixed(1) + '</b></td>'
+          + '<td>' + names[0] + t('pairAnd') + names[1] + '</td>'
+          + '<td class="q">' + quality(st.min) + '</td></tr>';
+      });
+    });
     document.getElementById('check').innerHTML =
-      '<h2 class="group__title">Проверка различимости</h2>'
-      + '<p>Для каждых 10 систем подряд (П1…П10, П2…П11 и т. д.) считаем разницу цветов по формуле CIEDE2000 (ΔE). '
-      + 'Если заливка разная (сплошная / штриховка / сетка / точки), системы различимы по рисунку. '
-      + 'ΔE ≥ 15 — цвета уверенно разные, ≥ 20 — кардинально.</p>'
-      + '<table class="stats"><thead><tr><th>Группа</th><th>Худшая пара, ΔE</th><th>Какая пара</th><th>Оценка</th></tr></thead>'
+      '<h2 class="group__title">' + t('checkTitle') + '</h2>'
+      + '<p>' + t('checkText') + '</p>'
+      + '<table class="stats"><thead><tr><th>' + t('thSystems') + '</th><th>' + t('thWorst') + '</th><th>' + t('thPair')
+      + '</th><th>' + t('thRating') + '</th></tr></thead>'
       + '<tbody>' + rows + '</tbody></table>';
   }
 
@@ -132,13 +278,12 @@
       if (kind !== 'supply') items.push(P.SYSTEMS.exhaust[i]);
     }
     var pitch = 22, h = 14, x1 = 64, x2 = 676, top = 14;
-    var svg = '<svg viewBox="0 0 740 ' + (top * 2 + items.length * pitch) + '" class="floor__svg" role="img" aria-label="Параллельные воздуховоды">';
+    var svg = '<svg viewBox="0 0 740 ' + (top * 2 + items.length * pitch) + '" class="floor__svg" role="img" aria-label="' + t('floorAria') + '">';
     items.forEach(function (s, i) {
       var y = top + i * pitch;
-      svg += '<rect x="' + x1 + '" y="' + y + '" width="' + (x2 - x1) + '" height="' + h + '" fill="' + fillRef(s) + '"/>'
-        + '<path d="M' + x1 + ' ' + y + 'H' + x2 + 'M' + x1 + ' ' + (y + h) + 'H' + x2 + '" stroke="' + s.wall + '" stroke-width="2.4" fill="none"/>'
-        + '<rect x="' + (x1 - 3) + '" y="' + (y - 2) + '" width="3" height="' + (h + 4) + '" fill="#fff" stroke="#111" stroke-width=".8"/>'
-        + '<rect x="' + x2 + '" y="' + (y - 2) + '" width="3" height="' + (h + 4) + '" fill="#fff" stroke="#111" stroke-width=".8"/>'
+      svg += '<rect x="' + x1 + '" y="' + y + '" width="' + (x2 - x1) + '" height="' + h + '" fill="' + s.hex + '"/>'
+        + '<path d="M' + x1 + ' ' + y + 'H' + x2 + 'M' + x1 + ' ' + (y + h) + 'H' + x2 + '" stroke="' + wallOf(s.kind) + '" stroke-width="' + (wallW() * 0.7).toFixed(2) + '" fill="none"/>'
+        + flangesSvg(x1, x2, y, y + h, 3, 2, 2.4, 1.6, .7)
         + '<text x="' + (x1 - 10) + '" y="' + (y + h - 2) + '" text-anchor="end" class="floor__lbl">' + s.code + '</text>'
         + '<text x="' + (x2 + 10) + '" y="' + (y + h - 2) + '" class="floor__lbl">' + s.code + '</text>';
     });
@@ -170,11 +315,7 @@
   }
 
   function allSystems() {
-    return P.SYSTEMS.supply.concat(P.SYSTEMS.exhaust);
-  }
-
-  function patternLabel(id) {
-    return P.TIERS.filter(function (t) { return t.pattern === id; })[0].label;
+    return P.SYSTEMS.supply.concat(P.SYSTEMS.exhaust, P.SYSTEMS.pipes);
   }
 
   function download(name, mime, text) {
@@ -187,20 +328,20 @@
   }
 
   function exportCsv() {
-    var head = ['Система', 'Группа', 'Цвет', 'R', 'G', 'B', 'HEX', 'Заливка', 'Стенки R', 'Стенки G', 'Стенки B'];
+    var head = t('csvHead');
     var rows = allSystems().map(function (s) {
-      var w = P.hexToRgb(s.wall);
-      return [s.code, s.kind === 'supply' ? 'Приточная' : 'Вытяжная', s.name,
-        s.rgb[0], s.rgb[1], s.rgb[2], s.hex, patternLabel(s.pattern), w[0], w[1], w[2]].join(';');
+      var w = s.kind === 'pipes' ? ['', '', ''] : P.hexToRgb(wallOf(s.kind));
+      var kind = { supply: 'kindSupply', exhaust: 'kindExhaust', pipes: 'kindPipes' }[s.kind];
+      return [s.code, t(kind), nm(s), s.rgb[0], s.rgb[1], s.rgb[2], s.hex, w[0], w[1], w[2]].join(';');
     });
     // BOM, чтобы Excel правильно открыл кириллицу
-    download('hvac-palette.csv', 'text/csv;charset=utf-8', '﻿' + [head.join(';')].concat(rows).join('\r\n'));
+    download('hvac-palette.csv', 'text/csv;charset=utf-8', '\ufeff' + [head.join(';')].concat(rows).join('\r\n'));
   }
 
   function exportJson() {
     var data = allSystems().map(function (s) {
-      return { system: s.code, kind: s.kind, color_name: s.name, rgb: s.rgb, hex: s.hex,
-        pattern: s.pattern, wall_rgb: P.hexToRgb(s.wall) };
+      return { system: s.code, kind: s.kind, color_name: nm(s), rgb: s.rgb, hex: s.hex,
+        wall_rgb: s.kind === 'pipes' ? null : P.hexToRgb(wallOf(s.kind)), wall_hex: s.kind === 'pipes' ? null : wallOf(s.kind) };
     });
     download('hvac-palette.json', 'application/json', JSON.stringify(data, null, 2));
   }
@@ -212,18 +353,56 @@
       var b = e.target.closest('[data-copy]');
       if (!b) return;
       copyText(b.dataset.copy).then(
-        function () { toast('Скопировано: ' + b.dataset.copy); },
-        function () { toast('Не удалось скопировать'); });
+        function () { toast(t('copied', b.dataset.copy)); },
+        function () { toast(t('copyFail')); });
     });
 
     document.getElementById('filter').addEventListener('click', function (e) {
       var b = e.target.closest('button');
       if (!b) return;
       this.querySelectorAll('button').forEach(function (x) { x.classList.toggle('is-active', x === b); });
-      var f = b.dataset.filter;
-      document.querySelectorAll('.group').forEach(function (g) {
-        g.hidden = f !== 'all' && g.dataset.kind !== f;
-      });
+      filter = b.dataset.filter;
+      applyFilter();
+    });
+
+    document.getElementById('view').addEventListener('click', function (e) {
+      var b = e.target.closest('button');
+      if (!b) return;
+      this.querySelectorAll('button').forEach(function (x) { x.classList.toggle('is-active', x === b); });
+      view = b.dataset.view;
+      render();
+    });
+
+    document.getElementById('walls').addEventListener('click', function (e) {
+      var b = e.target.closest('button');
+      if (!b) return;
+      wallId = b.dataset.wall;
+      this.querySelectorAll('button').forEach(function (x) { x.classList.toggle('is-active', x === b); });
+      applyWalls();
+      render();
+      renderFloor();
+    });
+
+    document.getElementById('thick').addEventListener('click', function (e) {
+      var b = e.target.closest('button');
+      if (!b) return;
+      widthId = b.dataset.thick;
+      this.querySelectorAll('button').forEach(function (x) { x.classList.toggle('is-active', x === b); });
+      render();
+      renderFloor();
+    });
+
+    document.getElementById('iso-walls').addEventListener('click', function () {
+      isoWalls = !isoWalls;
+      this.setAttribute('aria-pressed', String(isoWalls));
+      render();
+    });
+
+    document.getElementById('lang').addEventListener('click', function (e) {
+      var b = e.target.closest('button');
+      if (!b) return;
+      window.I18N.setLang(b.dataset.lang);
+      renderAll();
     });
 
     document.getElementById('floor-kind').addEventListener('click', function (e) {
@@ -237,9 +416,19 @@
     document.getElementById('dl-json').addEventListener('click', exportJson);
   }
 
-  buildDefs();
-  render();
-  renderCheck();
-  renderFloor();
+  // Всё, что зависит от языка, перерисовываем целиком.
+  function renderAll() {
+    window.I18N.applyStatic();
+    document.querySelectorAll('#lang button').forEach(function (x) {
+      x.classList.toggle('is-active', x.dataset.lang === window.I18N.getLang());
+    });
+    renderWallButtons();
+    applyWalls();
+    render();
+    renderCheck();
+    renderFloor();
+  }
+
+  renderAll();
   bind();
 })();
