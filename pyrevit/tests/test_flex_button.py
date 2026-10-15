@@ -1098,14 +1098,25 @@ class FlexButtonTests(unittest.TestCase):
         self.assertEqual([f.created_with['type'] for f in w.created], [2, 2])
         self.assertEqual(len([l for l in w.log if l[0] == 'pick']), 5)       # 2 + зразок + 2
 
-    def test_sample_with_different_sizes_preselects_its_type_in_size_window(self):
+    def test_different_sizes_show_window_at_once_without_asking_for_sample(self):
         w = scenario()
         self._dia(w, 'a', 200)
         self._dia(w, 'b', 160)
         w.picks = [w.a, w.b, self._sample(w, 'Flex Alu')]
+        run_button(w, {'_config': {'type_from_model': 'true', 'flex_type': 'Flex Round'}})
+        self.assertEqual(len([l for l in w.log if l[0] == 'pick']), 2)         # клік на зразок не запитувався
+        self.assertEqual(len(w.picks), 1)                                      # зразок лишився невикористаним
+        self.assertEqual(len([l for l in w.log if l[0] == 'buildwin']), 1)     # вікно — одразу після вибору елементів
+        self.assertEqual(w.build_state.type, 'Flex Round')                     # тип — останній використаний, не зразок
+        kinds = [l[0] for l in w.log if l[0] in ('pick', 'buildwin')]
+        self.assertEqual(kinds, ['pick', 'pick', 'buildwin'])
+
+    def test_equal_sizes_still_ask_for_sample_when_enabled(self):
+        w = scenario()
+        w.picks = [w.a, w.b, self._sample(w, 'Flex Alu')]
         run_button(w, {'_config': {'type_from_model': 'true'}})
-        self.assertEqual(w.build_state.type, 'Flex Alu')
-        self.assertEqual(w.created[0].created_with['type'], 2)
+        self.assertEqual(len([l for l in w.log if l[0] == 'pick']), 3)
+        self.assertEqual([l for l in w.log if l[0] == 'buildwin'], [])
 
     def test_type_from_model_off_never_asks_for_sample(self):
         w = scenario()

@@ -624,17 +624,19 @@ def ask_size_and_type_dialogs(sizes, custom_sizes, entries, last):
 
 def choose_options(s0, s1, entries, state):
     """Після вибору двох елементів: який розмір і тип гнучкого. Повертає (тип-елемент, розмір).
-    Однакові розміри — розмір один, питаємо лише тип (а в циклі й того, якщо тип уже обрано й підходить).
-    Різні — одне вікно з чипами розмірів і типом. Закрили вікно — script.exit()."""
+    Однакові розміри — розмір один, питаємо лише тип (а в циклі й того, якщо тип уже обрано й підходить);
+    тут можливий клік на зразок у моделі. Різні — одразу одне вікно з чипами розмірів і типом, без кліку на зразок.
+    Закрили вікно — script.exit()."""
     by_name = dict((name, el) for name, _shape, el in entries)
     entry_pairs = [(name, shape) for name, shape, _el in entries]
     last = load_last('flex_type')
     sample = None
-    if state.get('from_model') and state.get('type') is None:
-        sample = pick_sample_type(by_name)                 # клік на гнучкий повітровод замість вибору зі списку
-        if sample is not None:
-            last = type_name(sample)
-    if hvac_sizes.same_size(s0, s1):
+    same = hvac_sizes.same_size(s0, s1)
+    # Тип кліком на гнучкий повітровод — лише коли розміри однакові. Різні розміри: одразу вікно з чипами й типом
+    # (воно саме по собі вибір), навіть якщо увімкнено «тип з моделі».
+    if same and state.get('from_model') and state.get('type') is None:
+        sample = pick_sample_type(by_name)
+    if same:
         size = s0
         names = hvac_sizes.types_for_shape(entry_pairs, size.get('shape'))
         if not names:
