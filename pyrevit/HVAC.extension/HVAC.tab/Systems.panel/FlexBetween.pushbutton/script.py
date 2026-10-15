@@ -36,7 +36,7 @@ try:
 
     import hvac_flex_settings
     import hvac_revit
-    import hvac_revit
+    import hvac_sizes
 except Exception:
     hvac_log.log_exception(TOOL, u'імпорт модулів')
     raise
@@ -324,16 +324,64 @@ def create_flex(c0, c1, type_id, system_id, level_id):
     return flex
 
 
-def apply_size(flex, connector):
-    """Розмір гнучкого повітровода — як у конектора, від якого починаємо."""
+def connector_size(c):
+    """Переріз конектора: круглий / прямокутний / овальний (або невідомий)."""
     try:
-        if connector.Shape == DB.ConnectorProfileType.Round:
-            flex.get_Parameter(DB.BuiltInParameter.RBS_CURVE_DIAMETER_PARAM).Set(connector.Radius * 2.0)
-        elif connector.Shape == DB.ConnectorProfileType.Rectangular:
-            flex.get_Parameter(DB.BuiltInParameter.RBS_CURVE_WIDTH_PARAM).Set(connector.Width)
-            flex.get_Parameter(DB.BuiltInParameter.RBS_CURVE_HEIGHT_PARAM).Set(connector.Height)
+        shape = c.Shape
+        if shape == DB.ConnectorProfileType.Round:
+            return hvac_sizes.round_size(c.Radius * 2.0)
+        if shape == DB.ConnectorProfileType.Rectangular:
+            return hvac_sizes.box_size('rect', c.Width, c.Height)
+        if shape == DB.ConnectorProfileType.Oval:
+            return hvac_sizes.box_size('oval', c.Width, c.Height)
     except Exception:
-        pass            # розмір залишиться за замовчуванням типу — не критично
+        hvac_log.log_exception(TOOL, u'переріз конектора не прочитано')
+    return hvac_sizes.unknown_size()
+
+
+def type_shape(t):
+    """Форма типу гнучкого повітровода (MEPCurveType.Shape): 'round' / 'rect' / 'oval' або None, якщо не визначити."""
+    try:
+        shape = t.Shape
+        if shape == DB.ConnectorProfileType.Round:
+            return 'round'
+        if shape == DB.ConnectorProfileType.Rectangular:
+            return 'rect'
+        if shape == DB.ConnectorProfileType.Oval:
+            return 'oval'
+    except Exception:
+        pass
+    return None
+
+
+def standard_sizes(shape):
+    """Стандартні круглі діаметри з налаштувань механіки проєкту (для вибору «свого» розміру). Прямокутні й овальні
+    списком не пропонуємо — їх можна взяти лише з конекторів. Не вдалося прочитати — порожній список."""
+    if shape != 'round':
+        return []
+    try:
+        settings = DB.Mechanical.DuctSizeSettings.GetDuctSizeSettings(doc)
+        for pair in settings:
+            if pair.Key == DB.Mechanical.DuctShape.Round:
+                found = [hvac_sizes.round_size(m.NominalDiameter) for m in pair.Value
+                         if getattr(m, 'UsedInSizeLists', True)]
+                return sorted(found, key=lambda x: x['d'])
+    except Exception:
+        hvac_log.log_exception(TOOL, u'стандартні розміри не прочитано (не критично)')
+    return []
+
+
+def apply_size(flex, size):
+    """Задати розмір гнучкого повітровода: діаметр для круглого, ширина й висота для прямокутного та овального."""
+    try:
+        shape = size.get('shape')
+        if shape == 'round':
+            flex.get_Parameter(DB.BuiltInParameter.RBS_CURVE_DIAMETER_PARAM).Set(size['d'])
+        elif shape in ('rect', 'oval'):
+            flex.get_Parameter(DB.BuiltInParameter.RBS_CURVE_WIDTH_PARAM).Set(size['w'])
+            flex.get_Parameter(DB.BuiltInParameter.RBS_CURVE_HEIGHT_PARAM).Set(size['h'])
+    except Exception:
+        hvac_log.log_exception(TOOL, u'розмір не задано — лишається розмір типу (не критично)')
 
 
 def connect_ends(flex, c0, c1):
@@ -425,7 +473,162 @@ def apply_config_param(flex, state):
         state['warnings'].append(u'Не вдалося записати параметр «{0}»: {1}'.format(name, ex))
 
 
-def build_one(c0, c1, flex_type, system_state):
+BUILD_XAML = u"""
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Гнучкий повітровод" Width="400" SizeToContent="Height" WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize" ShowInTaskbar="False" Topmost="True">
+  <StackPanel Margin="12">
+    <TextBlock Text="Розміри елементів різні. Розмір гнучкого повітровода:" Margin="0,0,0,6"/>
+    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+      <ToggleButton x:Name="chip0" MinWidth="120" Padding="12,5" Margin="0,0,8,0"/>
+      <ToggleButton x:Name="chip1" MinWidth="120" Padding="12,5"/>
+    </StackPanel>
+    <ComboBox x:Name="custom_size" Margin="0,0,0,12"/>
+    <TextBlock Text="Тип гнучкого повітровода:" Margin="0,0,0,4"/>
+    <ComboBox x:Name="types" Margin="0,0,0,12"/>
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+      <Button x:Name="ok_btn" Content="OK" Width="80" Margin="0,0,8,0" IsDefault="True"/>
+      <Button x:Name="cancel_btn" Content="Скасувати" Width="80" IsCancel="True"/>
+    </StackPanel>
+  </StackPanel>
+</Window>
+"""
+
+CUSTOM_PLACEHOLDER = u'Інший розмір…'
+NO_CUSTOM_SIZES = u'(інших стандартних розмірів немає)'
+
+
+def ask_size_and_type_window(sizes, custom_sizes, entries, last):
+    """Одне вікно, коли розміри елементів різні: два «чипи» з розмірами обох конекторів (клік — вибрано, за
+    замовчуванням перший), нижче випадаючий список «інший розмір», ще нижче тип. Список типів підлаштовується під
+    форму вибраного розміру. Повертає (розмір, ім'я типу) або None, якщо вікно закрито."""
+
+    class BuildWindow(forms.WPFWindow):
+        def __init__(self):
+            forms.WPFWindow.__init__(self, BUILD_XAML, literal_string=True)
+            self.result = None
+            self.size = sizes[0]
+            self.chips = [self.FindName('chip0'), self.FindName('chip1')]
+            self.custom = self.FindName('custom_size')
+            self.types = self.FindName('types')
+            for i, chip in enumerate(self.chips):
+                chip.Content = u'{0}-й: {1}'.format(i + 1, hvac_sizes.label(sizes[i]))
+            chip_handlers = (self.on_chip0, self.on_chip1)
+            for chip, handler in zip(self.chips, chip_handlers):
+                chip.Click += handler
+            self.custom.Items.Add(CUSTOM_PLACEHOLDER if custom_sizes else NO_CUSTOM_SIZES)
+            for c in custom_sizes:
+                self.custom.Items.Add(hvac_sizes.label(c))
+            self.custom.SelectedIndex = 0
+            self.custom.IsEnabled = bool(custom_sizes)
+            self.custom.SelectionChanged += self.on_custom
+            self.FindName('ok_btn').Click += self.on_ok
+            self.select_chip(0)
+            self.types.Focus()
+
+        def refill_types(self):
+            names = hvac_sizes.types_for_shape(entries, self.size.get('shape'))
+            keep = self.types.SelectedItem
+            self.types.Items.Clear()
+            for n in names:
+                self.types.Items.Add(n)
+            self.types.SelectedItem = keep if keep in names else (last if last in names else (names[0] if names else None))
+
+        def select_chip(self, index):
+            self.size = sizes[index]
+            for i, chip in enumerate(self.chips):
+                chip.IsChecked = (i == index)
+            self.custom.SelectedIndex = 0
+            self.refill_types()
+
+        def on_chip0(self, sender, args):
+            self.select_chip(0)
+
+        def on_chip1(self, sender, args):
+            self.select_chip(1)
+
+        def on_custom(self, sender, args):
+            index = self.custom.SelectedIndex
+            if index is None or index < 1:
+                return
+            self.size = custom_sizes[index - 1]
+            for chip in self.chips:
+                chip.IsChecked = False
+            self.refill_types()
+
+        def on_ok(self, sender, args):
+            chosen = self.types.SelectedItem
+            if chosen is not None:
+                self.result = (self.size, chosen)
+                self.Close()
+
+    win = BuildWindow()
+    win.ShowDialog()
+    return win.result
+
+
+def ask_size_and_type_dialogs(sizes, custom_sizes, entries, last):
+    """Запасний варіант на стандартних списках pyRevit: розмір, потім тип."""
+    labels = [u'{0}-й: {1}'.format(i + 1, hvac_sizes.label(sz)) for i, sz in enumerate(sizes)]
+    labels += [hvac_sizes.label(c) for c in custom_sizes]
+    everything = list(sizes) + list(custom_sizes)
+    picked = forms.SelectFromList.show(labels, title=u'Розмір гнучкого повітровода', button_name=u'Далі',
+                                       multiselect=False)
+    if not picked:
+        return None
+    size = everything[labels.index(picked)]
+    names = hvac_sizes.types_for_shape(entries, size.get('shape'))
+    if not names:
+        return size, None
+    if len(names) == 1:
+        return size, names[0]
+    name = forms.SelectFromList.show(names, title=u'Тип гнучкого повітровода:', button_name=u'Обрати',
+                                     multiselect=False)
+    return (size, name) if name else None
+
+
+def choose_options(s0, s1, entries, state):
+    """Після вибору двох елементів: який розмір і тип гнучкого. Повертає (тип-елемент, розмір).
+    Однакові розміри — розмір один, питаємо лише тип (а в циклі й того, якщо тип уже обрано й підходить).
+    Різні — одне вікно з чипами розмірів і типом. Закрили вікно — script.exit()."""
+    by_name = dict((name, el) for name, _shape, el in entries)
+    entry_pairs = [(name, shape) for name, shape, _el in entries]
+    last = load_last('flex_type')
+    if hvac_sizes.same_size(s0, s1):
+        size = s0
+        names = hvac_sizes.types_for_shape(entry_pairs, size.get('shape'))
+        if not names:
+            raise ValueError(u'Немає типів гнучкого повітровода для форми «{0}».'.format(
+                hvac_sizes.SHAPE_NAMES.get(size.get('shape'), u'?')))
+        cur = state.get('type')
+        if cur is not None and type_name(cur) in names:
+            return cur, size
+        chosen = choose_from([by_name[n] for n in names], names, u'Тип гнучкого повітровода:', 'flex_type')
+        state['type'] = chosen
+        return chosen, size
+    sizes = [s0, s1]
+    shapes = [x.get('shape') for x in sizes]
+    custom = hvac_sizes.dedupe_sizes(sizes + standard_sizes('round' if 'round' in shapes else None))[2:]
+    hvac_log.log(TOOL, u'розміри різні: {0} / {1}; власних розмірів у списку: {2}'.format(
+        hvac_sizes.label(s0), hvac_sizes.label(s1), len(custom)))
+    try:
+        result = ask_size_and_type_window(sizes, custom, entry_pairs, last)
+    except Exception:
+        hvac_log.log_exception(TOOL, u'вікно розміру й типу не вдалося, беру стандартні списки')
+        result = ask_size_and_type_dialogs(sizes, custom, entry_pairs, last)
+    if result is None:
+        script.exit()
+    size, name = result
+    if name is None:
+        raise ValueError(u'Немає типів гнучкого повітровода для форми «{0}».'.format(
+            hvac_sizes.SHAPE_NAMES.get(size.get('shape'), u'?')))
+    save_last('flex_type', name)
+    state['type'] = by_name[name]
+    return by_name[name], size
+
+
+def build_one(c0, c1, flex_type, size, system_state):
     system_id = system_type_id_from(c0) or system_type_id_from(c1) or system_state.get('id')
     if system_id is None:
         system_id = pick_system_type_id()
@@ -433,13 +636,14 @@ def build_one(c0, c1, flex_type, system_state):
     level_id = level_id_for(c0)
     if level_id is None:
         raise ValueError(u'У проєкті немає рівнів.')
-    hvac_log.log(TOOL, u'побудова: тип {0}, система {1}, рівень {2}, довжина {3:.3f} ft'.format(
-        type_name(flex_type), eid_int(system_id), eid_int(level_id), c0.Origin.DistanceTo(c1.Origin)))
+    hvac_log.log(TOOL, u'побудова: тип {0}, розмір {1}, система {2}, рівень {3}, довжина {4:.3f} ft'.format(
+        type_name(flex_type), hvac_sizes.label(size), eid_int(system_id), eid_int(level_id),
+        c0.Origin.DistanceTo(c1.Origin)))
     t = DB.Transaction(doc, u'Гнучкий повітровод між конекторами')
     t.Start()
     try:
         flex = create_flex(c0, c1, flex_type.Id, system_id, level_id)
-        apply_size(flex, c0)
+        apply_size(flex, size)
         apply_config_param(flex, system_state)
         connect_ends(flex, c0, c1)
         t.Commit()
@@ -455,16 +659,18 @@ def main():
     types = flex_types()
     if not types:
         forms.alert(u'У проєкті немає типів гнучких повітроводів.', title=u'Гнучкий повітровод', exitscript=True)
+    entries = [(type_name(t), type_shape(t), t) for t in types]
     cfg = script.get_config(CONFIG_SECTION)
-    # Тип гнучкого повітровода — вибір після натискання кнопки (останній обраний стоїть першим; один тип — без питання).
-    flex_type = choose_from(types, [type_name(t) for t in types], u'Тип гнучкого повітровода:', 'flex_type')
     config_value = hvac_flex_settings.get_config_value(cfg)
     # Режим циклу — галочка у вікні налаштувань (Shift+клік), за замовчуванням вимкнено.
     loop = hvac_flex_settings.is_loop(cfg)
-    hvac_log.log(TOOL, u'тип «{0}», «Гибкая конфигурация» = «{1}», цикл {2}, журнал {3}'.format(
-        type_name(flex_type), config_value, loop, hvac_log.log_path()))
+    hvac_log.log(TOOL, u'типів гнучких: {0} ({1}); «Гибкая конфигурация» = «{2}», цикл {3}, журнал {4}'.format(
+        len(types), u', '.join(u'{0}[{1}]'.format(n, sh) for n, sh, _t in entries), config_value, loop,
+        hvac_log.log_path()))
     tail = u'Esc — завершити' if loop else u'Esc — скасувати'
-    system_state = {'id': None, 'value': config_value, 'number': hvac_flex_settings.get_config_number(cfg), 'learned': None, 'warnings': [], 'dumped': False}
+    system_state = {'id': None, 'type': None, 'value': config_value,
+                    'number': hvac_flex_settings.get_config_number(cfg), 'learned': None,
+                    'warnings': [], 'dumped': False}
     made = 0
     while True:
         try:
@@ -481,19 +687,23 @@ def main():
                 continue
             break
         pair = closest_pair(e0, e1)
-        if pair is not None:
-            hvac_log.log(TOOL, u'пара конекторів: ({0:.2f}, {1:.2f}, {2:.2f}) → ({3:.2f}, {4:.2f}, {5:.2f})'.format(
-                pair[0].Origin.X, pair[0].Origin.Y, pair[0].Origin.Z,
-                pair[1].Origin.X, pair[1].Origin.Y, pair[1].Origin.Z))
         if pair is None:
             forms.alert(u'На одному з елементів немає вільних конекторів.', title=u'Гнучкий повітровод')
             if loop:
                 continue
             break
+        hvac_log.log(TOOL, u'пара конекторів: ({0:.2f}, {1:.2f}, {2:.2f}) → ({3:.2f}, {4:.2f}, {5:.2f})'.format(
+            pair[0].Origin.X, pair[0].Origin.Y, pair[0].Origin.Z,
+            pair[1].Origin.X, pair[1].Origin.Y, pair[1].Origin.Z))
+        s0, s1 = connector_size(pair[0]), connector_size(pair[1])
+        hvac_log.log(TOOL, u'розміри конекторів: {0} / {1}'.format(hvac_sizes.label(s0), hvac_sizes.label(s1)))
         try:
-            build_one(pair[0], pair[1], flex_type, system_state)
+            flex_type, size = choose_options(s0, s1, entries, system_state)
+            build_one(pair[0], pair[1], flex_type, size, system_state)
             made += 1
         except Exception as ex:
+            if hvac_log.is_not_error(ex):
+                raise                                       # Esc / закрите вікно вибору
             hvac_log.log(TOOL, u'побудова не вдалася: {0}'.format(ex))
             forms.alert(u'Не вдалося побудувати гнучкий повітровод:\n{0}\n\nЖурнал: {1}'.format(ex, hvac_log.log_path()),
                         title=u'Гнучкий повітровод')

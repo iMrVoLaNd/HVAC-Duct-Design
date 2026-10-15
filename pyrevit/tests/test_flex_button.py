@@ -76,12 +76,13 @@ class Connector(object):
     _n = 0
 
     def __init__(self, owner, origin, direction, domain=Domain.DomainHvac, connected=False, ctype=CType.End,
-                 system=None, radius=0.25):
+                 system=None, radius=0.25, shape='round', width=None, height=None):
         Connector._n += 1
         self.Id = Connector._n
         self.Owner, self.Origin, self.Domain, self.IsConnected, self.ConnectorType = owner, origin, domain, connected, ctype
         self.CoordinateSystem = types.SimpleNamespace(BasisZ=direction)
-        self.MEPSystem, self.Shape, self.Radius = system, 'round', radius
+        self.MEPSystem, self.Shape, self.Radius = system, shape, radius
+        self.Width, self.Height = width, height
         self.connected_to = []
 
     def ConnectTo(self, other):
@@ -220,9 +221,11 @@ class HasParams(object):
 
 
 class FlexTypeEl(HasParams):
-    def __init__(self, name, ident, *params):
+    def __init__(self, name, ident, *params, **kw):
         HasParams.__init__(self, *params)
         self.Name, self.Id = name, EId(ident)
+        if 'shape' in kw:
+            self.Shape = kw['shape']              # без атрибута — як коли Revit не дає форму типу
 
 
 class TypeRef(EId):
@@ -280,7 +283,7 @@ def run_button(world, answers=None, loop=False, path=None):
     DB.BuiltInCategory = CountingCategories()
     DB.Domain, DB.ConnectorType = Domain, CType
     DB.StorageType = types.SimpleNamespace(String='s', Integer='i', Double='d', ElementId='e')
-    DB.ConnectorProfileType = types.SimpleNamespace(Round='round', Rectangular='rect')
+    DB.ConnectorProfileType = types.SimpleNamespace(Round='round', Rectangular='rect', Oval='oval')
     DB.BuiltInParameter = types.SimpleNamespace(RBS_CURVE_DIAMETER_PARAM='diam', RBS_CURVE_WIDTH_PARAM='w', RBS_CURVE_HEIGHT_PARAM='h', RBS_FLEX_PATTERN_PARAM='flexpat')
 
     class FlexDuctType(object):
@@ -311,7 +314,19 @@ def run_button(world, answers=None, loop=False, path=None):
             world.elements[world.next_id] = f
             return f
 
-    DB.Mechanical = types.SimpleNamespace(FlexDuct=FlexDuct, FlexDuctType=FlexDuctType, MechanicalSystemType=MechanicalSystemType)
+    class DuctSizeSettings(object):
+        @staticmethod
+        def GetDuctSizeSettings(d):
+            if answers.get('_sizes_crash'):
+                raise RuntimeError('налаштування розмірів недоступні')
+            sizes = [types.SimpleNamespace(NominalDiameter=x / 304.8, UsedInSizeLists=ok)
+                     for x, ok in answers.get('_standard_sizes', [])]
+            return [types.SimpleNamespace(Key='rect-shape', Value=[]), types.SimpleNamespace(Key='round-shape', Value=sizes)]
+
+    DB.Mechanical = types.SimpleNamespace(FlexDuct=FlexDuct, FlexDuctType=FlexDuctType,
+                                          MechanicalSystemType=MechanicalSystemType, DuctSizeSettings=DuctSizeSettings,
+                                          DuctShape=types.SimpleNamespace(Round='round-shape', Rectangular='rect-shape',
+                                                                          Oval='oval-shape'))
     DB.Level = Level
     class NameDescriptor(object):
         """Як у IronPython 3: DB.Element.Name — getset_descriptor, БЕЗ методу GetValue."""
@@ -395,23 +410,45 @@ def run_button(world, answers=None, loop=False, path=None):
         def Add(self, x):
             self.append(x)
 
+        def Clear(self):
+            del self[:]
+
     class Event(object):
         def __init__(self):
             self.handlers = []
 
-        def __iadd__(self, h):                    # button.Click += handler
+        def __iadd__(self, h):                    # control.Click += handler
             self.handlers.append(h)
             return self
 
+        def fire(self):
+            for h in list(self.handlers):
+                h(None, None)
+
     class Combo(object):
         def __init__(self):
-            self.Items, self.SelectedItem = ItemsList(), None
+            self.Items, self.SelectedItem, self._i, self.IsEnabled = ItemsList(), None, -1, True
+            self.SelectionChanged = Event()
 
         def Focus(self):
             return True
 
+        @property
+        def SelectedIndex(self):
+            return self._i
+
+        @SelectedIndex.setter
+        def SelectedIndex(self, i):
+            self._i = i
+            self.SelectedItem = self.Items[i] if 0 <= i < len(self.Items) else None
+            self.SelectionChanged.fire()          # як у WPF: зміна індексу викликає SelectionChanged
+
     class Check(object):
         IsChecked = False
+
+    class Chip(object):
+        def __init__(self):
+            self.Click, self.IsChecked, self.Content = Event(), False, u''
 
     class Button(object):
         def __init__(self):
@@ -427,7 +464,8 @@ def run_button(world, answers=None, loop=False, path=None):
             self.Title = u''
             self.ctl = {}
             for name in re.findall(r'x:Name="(\w+)"', xaml):
-                self.ctl[name] = Button() if name.endswith('_btn') else (Check() if name == 'loop' else Combo())
+                self.ctl[name] = (Button() if name.endswith('_btn') else Chip() if name.startswith('chip') else
+                                  Check() if name == 'loop' else Combo())
             if 'param_value' in self.ctl:
                 assert 'IsEditable="False"' in xaml            # лише вибір зі списку, вводити своє не можна
             self.closed = False
@@ -440,6 +478,23 @@ def run_button(world, answers=None, loop=False, path=None):
 
         def ShowDialog(self):
             c = self.ctl
+            if 'chip0' in c:                                  # вікно розміру й типу (розміри різні)
+                world.log.append(('buildwin', [c['chip0'].Content, c['chip1'].Content], list(c['custom_size'].Items),
+                                  c['custom_size'].IsEnabled))
+                reply = answers.get('_build', {})
+                if reply is None:
+                    return                                    # закрито без вибору
+                if 'custom' in reply:
+                    c['custom_size'].SelectedIndex = reply['custom']
+                if 'chip' in reply:
+                    c['chip%d' % reply['chip']].Click.fire()
+                world.build_state = types.SimpleNamespace(
+                    types=list(c['types'].Items), type=c['types'].SelectedItem,
+                    chips=[c['chip0'].IsChecked, c['chip1'].IsChecked], custom_index=c['custom_size'].SelectedIndex)
+                if 'type' in reply:
+                    c['types'].SelectedItem = reply['type']
+                c['ok_btn'].Click.fire()
+                return
             if 'choices' in c:                                # компактне вікно вибору типу
                 combo = c['choices']
                 world.log.append(('select', self.Title, list(combo.Items), combo.SelectedItem))
@@ -738,6 +793,212 @@ class FlexButtonTests(unittest.TestCase):
         self.assertEqual((len(w.created), w.tx), (1, ['start', 'commit']))
         self.assertIn(u'параметр-збій-5150', self._log_text())
 
+    # ---------- розмір і форма: вікно після вибору елементів ----------
+
+    @staticmethod
+    def _dia(w, which, mm_value):
+        conn = (w.a.MEPModel.ConnectorManager.Connectors[0] if which == 'a' else w.b.ConnectorManager.Connectors[0])
+        conn.Radius = mm_value / 2.0 / 304.8
+        return conn
+
+    @staticmethod
+    def _rect(w, which, width_mm, height_mm, shape='rect'):
+        conn = (w.a.MEPModel.ConnectorManager.Connectors[0] if which == 'a' else w.b.ConnectorManager.Connectors[0])
+        conn.Shape, conn.Width, conn.Height = shape, width_mm / 304.8, height_mm / 304.8
+        return conn
+
+    def _go(self, w, answers=None, **kw):
+        w.picks = [w.a, w.b]
+        run_button(w, answers, **kw)
+        return w.created[0] if w.created else None
+
+    def test_type_window_comes_after_element_selection(self):
+        w = scenario()
+        self._go(w, {u'Тип гнучкого': 'Flex Alu'})
+        kinds = [l[0] for l in w.log if l[0] in ('pick', 'select')]
+        self.assertEqual(kinds, ['pick', 'pick', 'select'])
+
+    def test_same_size_means_no_size_window(self):
+        w = scenario()
+        self._dia(w, 'a', 200)
+        self._dia(w, 'b', 200.2)                           # в межах допуску 0.5 мм
+        self._go(w)
+        self.assertEqual([l for l in w.log if l[0] == 'buildwin'], [])
+
+    def test_different_sizes_show_chips_with_both_sizes(self):
+        w = scenario()
+        self._dia(w, 'a', 200)
+        self._dia(w, 'b', 160)
+        self._go(w)
+        win = [l for l in w.log if l[0] == 'buildwin'][0]
+        self.assertEqual(win[1], [u'1-й: Ø200', u'2-й: Ø160'])
+        self.assertIn(u'розміри різні: Ø200 / Ø160', self._log_text())
+
+    def test_default_chip_is_first_connector_size(self):
+        w = scenario()
+        self._dia(w, 'a', 200)
+        self._dia(w, 'b', 160)
+        f = self._go(w)
+        self.assertAlmostEqual(f.params['diam'].value, 200 / 304.8, places=6)
+        self.assertEqual(w.build_state.chips, [True, False])
+
+    def test_second_chip_selects_second_size(self):
+        w = scenario()
+        self._dia(w, 'a', 200)
+        self._dia(w, 'b', 160)
+        f = self._go(w, {'_build': {'chip': 1}})
+        self.assertAlmostEqual(f.params['diam'].value, 160 / 304.8, places=6)
+        self.assertEqual(w.build_state.chips, [False, True])
+
+    def test_custom_size_from_dropdown_overrides_chips(self):
+        w = scenario()
+        self._dia(w, 'a', 200)
+        self._dia(w, 'b', 160)
+        f = self._go(w, {'_standard_sizes': [(150, True), (160, True), (250, True), (300, False)], '_build': {'custom': 2}})
+        win = [l for l in w.log if l[0] == 'buildwin'][0]
+        self.assertEqual(win[2], [u'Інший розмір…', u'Ø150', u'Ø250'])      # без розмірів чипів і без «не для списків»
+        self.assertAlmostEqual(f.params['diam'].value, 250 / 304.8, places=6)
+        self.assertEqual(w.build_state.chips, [False, False])                # чипи знято
+
+    def test_choosing_chip_resets_custom_dropdown(self):
+        w = scenario()
+        self._dia(w, 'a', 200)
+        self._dia(w, 'b', 160)
+        self._go(w, {'_standard_sizes': [(150, True)], '_build': {'custom': 1, 'chip': 1}})
+        self.assertEqual(w.build_state.custom_index, 0)
+
+    def test_custom_dropdown_disabled_when_no_standard_sizes(self):
+        w = scenario()
+        self._dia(w, 'a', 200)
+        self._dia(w, 'b', 160)
+        self._go(w)
+        win = [l for l in w.log if l[0] == 'buildwin'][0]
+        self.assertEqual((win[2], win[3]), ([u'(інших стандартних розмірів немає)'], False))
+
+    def test_standard_sizes_failure_is_not_critical(self):
+        w = scenario()
+        self._dia(w, 'a', 200)
+        self._dia(w, 'b', 160)
+        f = self._go(w, {'_sizes_crash': True})
+        self.assertIsNotNone(f)
+        self.assertIn(u'налаштування розмірів недоступні', self._log_text())
+
+    def test_closing_size_window_cancels_without_building(self):
+        w = scenario()
+        self._dia(w, 'a', 200)
+        self._dia(w, 'b', 160)
+        w.picks = [w.a, w.b]
+        with self.assertRaises(ExitScript):
+            run_button(w, {'_build': None})
+        self.assertEqual((w.created, w.tx), ([], []))
+
+    def test_type_list_follows_shape_of_chosen_size(self):
+        w = scenario()
+        w.flex_types = [FlexTypeEl('Flex Round', 1, shape='round'), FlexTypeEl('Flex Rect', 2, shape='rect'),
+                        FlexTypeEl('Flex Any', 3)]
+        self._dia(w, 'a', 200)
+        self._rect(w, 'b', 400, 200)
+        self._go(w, {'_build': {'chip': 0}})
+        self.assertEqual(w.build_state.types, ['Flex Any', 'Flex Round'])
+        w2 = scenario()
+        w2.flex_types = list(w.flex_types)
+        self._dia(w2, 'a', 200)
+        self._rect(w2, 'b', 400, 200)
+        f = self._go(w2, {'_build': {'chip': 1}})
+        self.assertEqual(w2.build_state.types, ['Flex Any', 'Flex Rect'])
+        self.assertEqual(w2.build_state.type, 'Flex Any')                      # перший підходящий за алфавітом
+        self.assertAlmostEqual(f.params['w'].value, 400 / 304.8, places=6)
+        self.assertAlmostEqual(f.params['h'].value, 200 / 304.8, places=6)
+        self.assertNotIn('diam', f.params)
+
+    def test_last_type_is_preselected_in_size_window(self):
+        w = scenario()
+        self._dia(w, 'a', 200)
+        self._dia(w, 'b', 160)
+        self._go(w, {'_config': {'flex_type': 'Flex Round'}})
+        self.assertEqual(w.build_state.type, 'Flex Round')
+
+    def test_type_from_size_window_is_used_and_remembered(self):
+        w = scenario()
+        cfg = {}
+        self._dia(w, 'a', 200)
+        self._dia(w, 'b', 160)
+        f = self._go(w, {'_build': {'type': 'Flex Alu'}, '_config': cfg})
+        self.assertEqual(f.created_with['type'], 2)
+        self.assertEqual(cfg['flex_type'], 'Flex Alu')
+
+    def test_rect_same_size_sets_width_and_height(self):
+        w = scenario()
+        self._rect(w, 'a', 400, 200)
+        self._rect(w, 'b', 400, 200)
+        f = self._go(w, {u'Тип гнучкого': 'Flex Alu'})
+        self.assertEqual([l for l in w.log if l[0] == 'buildwin'], [])
+        self.assertAlmostEqual(f.params['w'].value, 400 / 304.8, places=6)
+
+    def test_oval_is_supported_like_rect(self):
+        w = scenario()
+        self._rect(w, 'a', 300, 150, shape='oval')
+        self._rect(w, 'b', 300, 150, shape='oval')
+        f = self._go(w)
+        self.assertAlmostEqual(f.params['h'].value, 150 / 304.8, places=6)
+        self.assertIn(u'овал 300×150', self._log_text())
+
+    def test_same_dimensions_but_different_shape_counts_as_different(self):
+        w = scenario()
+        self._dia(w, 'a', 200)
+        self._rect(w, 'b', 200, 200)
+        self._go(w)
+        self.assertEqual(len([l for l in w.log if l[0] == 'buildwin']), 1)
+
+    def test_no_type_for_the_shape_gives_clear_message_and_no_build(self):
+        w = scenario()
+        w.flex_types = [FlexTypeEl('Flex Round', 1, shape='round'), FlexTypeEl('Flex Round 2', 2, shape='round')]
+        self._rect(w, 'a', 400, 200)
+        self._rect(w, 'b', 400, 200)
+        self._go(w)
+        self.assertEqual(w.created, [])
+        self.assertTrue(any(u'Немає типів гнучкого повітровода для форми «прямокутний»' in a for a in w.alerts))
+
+    def test_unknown_connector_shape_is_not_treated_as_mismatch(self):
+        w = scenario()
+        self._rect(w, 'a', 1, 1, shape='weird')
+        self._rect(w, 'b', 1, 1, shape='weird')
+        f = self._go(w)
+        self.assertEqual([l for l in w.log if l[0] == 'buildwin'], [])
+        self.assertNotIn('diam', f.params)                                    # розмір типу не чіпаємо
+
+    def test_size_window_failure_falls_back_to_lists(self):
+        w = scenario()
+        self._dia(w, 'a', 200)
+        self._dia(w, 'b', 160)
+        f = self._go(w, {'_wpf_crash': True, u'Розмір гнучкого': u'2-й: Ø160', u'Тип гнучкого': 'Flex Alu'})
+        self.assertAlmostEqual(f.params['diam'].value, 160 / 304.8, places=6)
+        self.assertEqual(f.created_with['type'], 2)
+        self.assertIn(u'вікно розміру й типу не вдалося', self._log_text())
+
+    def test_loop_asks_type_once_for_equal_sizes_but_size_window_for_each_mismatch(self):
+        w = self._two_pairs()
+        c, d = w.elements[3], w.elements[4]
+        c.MEPModel.ConnectorManager.Connectors[0].Radius = 0.2
+        d.ConnectorManager.Connectors[0].Radius = 0.2
+        run_button(w, {u'Тип гнучкого': 'Flex Alu'}, loop=True)
+        self.assertEqual(len([l for l in w.log if l[0] == 'select' and u'Тип гнучкого' in l[1]]), 1)   # тип — один раз
+        w2 = self._two_pairs()
+        w2.elements[3].MEPModel.ConnectorManager.Connectors[0].Radius = 0.3
+        w2.elements[4].ConnectorManager.Connectors[0].Radius = 0.1             # друга пара — з різними розмірами
+        run_button(w2, loop=True)
+        self.assertEqual(len([l for l in w2.log if l[0] == 'buildwin']), 1)
+        self.assertEqual(len(w2.created), 2)
+
+    def test_type_choice_asked_again_if_remembered_type_does_not_fit_new_shape(self):
+        w = self._two_pairs()
+        w.flex_types = [FlexTypeEl('Flex Round', 1, shape='round'), FlexTypeEl('Flex Rect', 2, shape='rect')]
+        c, d = w.elements[3], w.elements[4]
+        for conn in (c.MEPModel.ConnectorManager.Connectors[0], d.ConnectorManager.Connectors[0]):
+            conn.Shape, conn.Width, conn.Height = 'rect', 1.0, 0.5
+        run_button(w, loop=True)
+        self.assertEqual([f.created_with['type'] for f in w.created], [1, 2])   # другу пару (прямокутну) — типом Rect
+
     # ---------- швидкість і компактне вікно вибору типу ----------
 
     def test_type_picker_is_small_window_sorted_with_last_preselected(self):
@@ -756,6 +1017,7 @@ class FlexButtonTests(unittest.TestCase):
 
     def test_closing_type_picker_cancels_the_button(self):
         w = scenario()
+        w.picks = [w.a, w.b]
         with self.assertRaises(ExitScript):
             run_button(w, {u'Тип гнучкого': None})
         self.assertEqual(w.created, [])
