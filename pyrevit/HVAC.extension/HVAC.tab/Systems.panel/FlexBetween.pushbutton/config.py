@@ -39,6 +39,60 @@ def type_name(t):
     return hvac_revit.element_name(DB, t)
 
 
+XAML = u"""
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Гнучкий повітровод — налаштування" Width="420" SizeToContent="Height"
+        WindowStartupLocation="CenterScreen" ResizeMode="NoResize" ShowInTaskbar="False">
+  <StackPanel Margin="16">
+    <TextBlock Text="Тип гнучкого повітровода:" Margin="0,0,0,6"/>
+    <ComboBox x:Name="flex_type" Margin="0,0,0,14"/>
+    <CheckBox x:Name="loop" Content="Цикл: будувати пари поспіль, поки не натиснуто Esc" Margin="0,0,0,16"/>
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+      <Button x:Name="save_btn" Content="Зберегти" Width="100" Margin="0,0,8,0" IsDefault="True"/>
+      <Button x:Name="cancel_btn" Content="Скасувати" Width="100" IsCancel="True"/>
+    </StackPanel>
+  </StackPanel>
+</Window>
+"""
+
+
+def ask_with_window(names, default, loop):
+    """Власне WPF-вікно: список типів, галочка «Цикл», кнопки «Зберегти» / «Скасувати».
+    Повертає (тип, цикл) або None, якщо вікно закрито без збереження."""
+
+    class SettingsWindow(forms.WPFWindow):
+        def __init__(self):
+            forms.WPFWindow.__init__(self, XAML, literal_string=True)
+            self.result = None
+            combo = self.FindName('flex_type')
+            for n in names:
+                combo.Items.Add(n)
+            combo.SelectedIndex = names.index(default)
+            self.FindName('loop').IsChecked = bool(loop)
+            self.FindName('save_btn').Click += self.on_save
+
+        def on_save(self, sender, args):
+            self.result = (self.FindName('flex_type').SelectedItem, bool(self.FindName('loop').IsChecked))
+            self.Close()
+
+    win = SettingsWindow()
+    win.ShowDialog()
+    return win.result
+
+
+def ask_with_dialogs(names, default, loop):
+    """Запасний варіант на стандартних діалогах pyRevit — якщо власне вікно не вдалося створити."""
+    ordered = [default] + [n for n in names if n != default]
+    picked = forms.SelectFromList.show(ordered, title=u'Тип гнучкого повітровода (зараз: «{0}»)'.format(default),
+                                       button_name=u'Далі', multiselect=False)
+    if not picked:
+        return None
+    loop_on = forms.alert(u'Режим «Цикл» (пари поспіль, поки не натиснуто Esc).\nЗараз: {0}.\n\nУвімкнути?'
+                          .format(u'увімкнено' if loop else u'вимкнено'), title=TITLE, yes=True, no=True)
+    return picked, bool(loop_on)
+
+
 def main():
     cfg = script.get_config(CONFIG_SECTION)
     names = sorted(type_name(t) for t in DB.FilteredElementCollector(doc).OfClass(DB.Mechanical.FlexDuctType))
@@ -47,24 +101,20 @@ def main():
     current = hvac_flex_settings.get_flex_type(cfg)
     idx = hvac_flex_settings.find_type_index(names, current)
     default = names[idx if idx is not None else 0]
+    loop = hvac_flex_settings.is_loop(cfg)
 
-    components = [
-        forms.Label(u'Тип гнучкого повітровода:'),
-        forms.ComboBox('flex_type', names, default=default),
-        forms.Separator(),
-        forms.CheckBox('loop', u'Цикл: будувати пари поспіль, поки не натиснуто Esc',
-                       default=hvac_flex_settings.is_loop(cfg)),
-        forms.Separator(),
-        forms.Button(u'Зберегти'),
-    ]
-    form = forms.FlexForm(TITLE, components)
-    form.show()
-    values = form.values
-    if not values:                            # вікно закрито хрестиком — нічого не змінюємо
+    try:
+        result = ask_with_window(names, default, loop)
+    except Exception:
+        hvac_log.log_exception(TOOL, u'вікно налаштувань (WPF) не вдалося, беру стандартні діалоги')
+        result = ask_with_dialogs(names, default, loop)
+    if result is None:                        # вікно закрито без збереження — нічого не змінюємо
+        hvac_log.log(TOOL, u'налаштування не змінено')
         script.exit()
-    hvac_flex_settings.set_flex_type(cfg, values['flex_type'])
-    hvac_flex_settings.set_loop(cfg, bool(values['loop']))
+    hvac_flex_settings.set_flex_type(cfg, result[0])
+    hvac_flex_settings.set_loop(cfg, result[1])
     script.save_config()
+    hvac_log.log(TOOL, u'збережено: тип «{0}», цикл {1}'.format(result[0], result[1]))
 
 
 hvac_log.run(TOOL, main, doc)

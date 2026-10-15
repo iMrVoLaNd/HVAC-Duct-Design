@@ -265,7 +265,7 @@ def run_button(world, answers=None, loop=False, path=None):
         world.alerts.append(msg)
         if exitscript:
             raise ExitScript(msg)
-        return True
+        return answers.get('_alert_result', True)
 
     class SelectFromList(object):
         @staticmethod
@@ -276,26 +276,66 @@ def run_button(world, answers=None, loop=False, path=None):
                     return val
             return items[0]
 
-    class Comp(object):
-        def __init__(self, kind, name=None, **kw):
-            self.kind, self.name, self.kw = kind, name, kw
+    class Event(object):
+        def __init__(self):
+            self.handlers = []
 
-    class FlexForm(object):
-        def __init__(self, title, components):
-            self.title, self.components, self.values = title, components, {}
+        def __iadd__(self, h):                    # button.Click += handler
+            self.handlers.append(h)
+            return self
 
-        def show(self):
-            world.form = self
-            reply = answers.get('_form')                  # None — вікно закрито хрестиком
+    class Items(list):
+        def Add(self, x):
+            self.append(x)
+
+    class Combo(object):
+        def __init__(self):
+            self.Items, self.SelectedItem, self._i = Items(), None, -1
+
+        @property
+        def SelectedIndex(self):
+            return self._i
+
+        @SelectedIndex.setter
+        def SelectedIndex(self, i):
+            self._i, self.SelectedItem = i, self.Items[i]
+
+    class Check(object):
+        IsChecked = False
+
+    class Button(object):
+        def __init__(self):
+            self.Click = Event()
+
+    class WPFWindow(object):
+        """Заглушка pyrevit.forms.WPFWindow: XAML-елементи за x:Name, ShowDialog імітує вибір користувача."""
+
+        def __init__(self, xaml, literal_string=False, **kw):
+            if answers.get('_wpf_crash'):
+                raise RuntimeError('XAML не розібрано')
+            assert literal_string and 'x:Name="flex_type"' in xaml
+            self.ctl = {'flex_type': Combo(), 'loop': Check(), 'save_btn': Button(), 'cancel_btn': Button()}
+            self.closed = False
+
+        def FindName(self, name):
+            return self.ctl[name]
+
+        def Close(self):
+            self.closed = True
+
+        def ShowDialog(self):
+            combo, loop = self.ctl['flex_type'], self.ctl['loop']
+            world.form = types.SimpleNamespace(options=list(combo.Items), selected=combo.SelectedItem,
+                                               loop=loop.IsChecked)
+            reply = answers.get('_form')              # None — вікно закрито без збереження
             if reply is not None:
-                self.values = dict(reply)
+                combo.SelectedItem, loop.IsChecked = reply['flex_type'], reply['loop']
+                for h in self.ctl['save_btn'].Click.handlers:
+                    h(None, None)
 
-    forms = types.SimpleNamespace(
-        alert=alert, SelectFromList=SelectFromList, FlexForm=FlexForm,
-        Label=lambda text: Comp('label', text=text),
-        ComboBox=lambda name, options, **kw: Comp('combo', name, options=list(options), **kw),
-        CheckBox=lambda name, text, **kw: Comp('check', name, text=text, **kw),
-        Separator=lambda: Comp('sep'), Button=lambda text, **kw: Comp('button', text=text))
+    forms = types.SimpleNamespace(alert=alert, SelectFromList=SelectFromList)
+    if not answers.get('_no_wpf'):
+        forms.WPFWindow = WPFWindow
 
     class Output(object):
         def print_md(self, t):
@@ -460,7 +500,7 @@ class FlexButtonTests(unittest.TestCase):
     def test_config_window_lists_type_names(self):
         w = scenario()
         run_button(w, {'_form': {'flex_type': 'Flex Alu', 'loop': False}}, path=CONFIG)
-        self.assertEqual(self._comp(w, 'flex_type').kw['options'], ['Flex Alu', 'Flex Round'])
+        self.assertEqual(w.form.options, ['Flex Alu', 'Flex Round'])
 
     # ---------- установка: папка lib ----------
 
@@ -563,11 +603,18 @@ class FlexButtonTests(unittest.TestCase):
         run_button(w)
         self.assertIn(u'вибір скасовано (Esc)', self._log_text())
 
-    def test_config_window_errors_are_logged_too(self):
+    def test_config_window_wpf_failure_falls_back_to_dialogs_and_is_logged(self):
         w = scenario()
-        w.flex_types = [types.SimpleNamespace(Name='A', Id=EId(1))]
-        run_button(w, {'_form': {'flex_type': 'A'}}, path=CONFIG)      # у формі немає 'loop' → KeyError
-        self.assertIn(u'KeyError', self._log_text())
+        cfg = {}
+        run_button(w, {'_wpf_crash': True, u'Тип гнучкого': 'Flex Alu', '_alert_result': True, '_config': cfg}, path=CONFIG)
+        self.assertEqual((cfg['flex_type'], cfg['loop']), ('Flex Alu', 'true'))
+        self.assertIn(u'XAML не розібрано', self._log_text())
+
+    def test_config_works_when_forms_has_no_wpfwindow_attribute(self):
+        w = scenario()
+        cfg = {}
+        run_button(w, {'_no_wpf': True, u'Тип гнучкого': 'Flex Round', '_alert_result': False, '_config': cfg}, path=CONFIG)
+        self.assertEqual((cfg['flex_type'], cfg['loop']), ('Flex Round', 'false'))
 
     def test_selection_is_whole_element_not_a_point(self):
         w = scenario()
@@ -724,16 +771,13 @@ class FlexButtonTests(unittest.TestCase):
         run_button(w, {'_config': {'flex_type': u'Немає такого'}})
         self.assertEqual(len([l for l in w.log if l[0] == 'select']), 1)
 
-    def _comp(self, w, name):
-        return [c for c in w.form.components if c.name == name][0]
-
     def test_config_window_defaults_are_gibkiy_and_loop_off(self):
         w = scenario()
         w.flex_types.append(types.SimpleNamespace(Name=u'Гибкий', Id=EId(3)))
         run_button(w, {'_form': {'flex_type': u'Гибкий', 'loop': False}}, path=CONFIG)
-        self.assertEqual(self._comp(w, 'flex_type').kw['default'], u'Гибкий')
-        self.assertIn(u'Гибкий', self._comp(w, 'flex_type').kw['options'])
-        self.assertFalse(self._comp(w, 'loop').kw['default'])
+        self.assertEqual(w.form.selected, u'Гибкий')
+        self.assertIn(u'Гибкий', w.form.options)
+        self.assertFalse(w.form.loop)
 
     def test_config_window_saves_type_and_loop(self):
         w = scenario()
@@ -753,7 +797,8 @@ class FlexButtonTests(unittest.TestCase):
         cfg = {'loop': 'true'}
         run_button(w, {'_form': {'flex_type': 'Flex Round', 'loop': False}, '_config': cfg}, path=CONFIG)
         self.assertEqual(cfg['loop'], 'false')
-        self.assertTrue(self._comp(w, 'loop').kw['default'])        # стан у вікні відображає збережений
+        self.assertTrue(w.form.loop)                                # стан у вікні відображає збережений
+
     def test_config_window_closed_changes_nothing(self):
         w = scenario()
         cfg = {'flex_type': 'Flex Round'}
