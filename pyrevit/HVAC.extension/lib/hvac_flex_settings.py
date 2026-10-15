@@ -25,6 +25,24 @@ def set_loop(cfg, value):
     cfg.set_option(LOOP_KEY, 'true' if value else 'false')
 
 
+# ---------- звідки брати тип гнучкого повітровода ----------
+# За замовчуванням тип обирається у вікні зі списку. Якщо ввімкнено — після вибору двох елементів кнопка просить
+# клацнути на будь-який гнучкий повітровод у моделі й бере тип з нього.
+
+TYPE_FROM_MODEL_KEY = 'type_from_model'
+
+
+def is_type_from_model(cfg):
+    try:
+        return _truthy(cfg.get_option(TYPE_FROM_MODEL_KEY, 'false'))
+    except Exception:
+        return False
+
+
+def set_type_from_model(cfg, value):
+    cfg.set_option(TYPE_FROM_MODEL_KEY, 'true' if value else 'false')
+
+
 # ---------- параметр «Гибкая конфигурация» (BuiltInParameter.RBS_FLEX_PATTERN_PARAM) ----------
 # Після побудови гнучкого повітровода кнопка записує це значення в параметр (спершу шукає його в екземплярі, потім
 # у типі). Порожнє значення — параметр не чіпати. Тип гнучкого повітровода обирається при кожному запуску кнопки.

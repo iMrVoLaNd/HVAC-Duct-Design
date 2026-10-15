@@ -126,6 +126,18 @@ class FakeInstance(object):      # сімейство: конектори чер
             self.MEPModel.ConnectorManager.Connectors.append(c)
 
 
+class FlexSample(object):
+    """Існуючий гнучкий повітровод у моделі — з нього беруть тип."""
+
+    def __init__(self, ident, type_el):
+        self.Id = EId(ident)
+        self.Category = category('OST_FlexDuctCurves')
+        self._type = type_el
+
+    def GetTypeId(self):
+        return TypeRef(self._type)
+
+
 class ExitScript(Exception):
     pass
 
@@ -465,7 +477,7 @@ def run_button(world, answers=None, loop=False, path=None):
             self.ctl = {}
             for name in re.findall(r'x:Name="(\w+)"', xaml):
                 self.ctl[name] = (Button() if name.endswith('_btn') else Chip() if name.startswith('chip') else
-                                  Check() if name == 'loop' else Combo())
+                                  Check() if name in ('loop', 'pick_type') else Combo())
             if 'param_value' in self.ctl:
                 assert 'IsEditable="False"' in xaml            # лише вибір зі списку, вводити своє не можна
             self.closed = False
@@ -507,11 +519,13 @@ def run_button(world, answers=None, loop=False, path=None):
                     h(None, None)
                 return
             world.form = types.SimpleNamespace(value=c['param_value'].SelectedItem,
-                                               options=list(c['param_value'].Items), loop=c['loop'].IsChecked)
+                                               options=list(c['param_value'].Items), loop=c['loop'].IsChecked,
+                                               pick_type=c['pick_type'].IsChecked)
             reply = answers.get('_form')              # None — вікно закрито без збереження
             if reply is not None:
                 c['param_value'].SelectedItem = reply['value']
                 c['loop'].IsChecked = reply['loop']
+                c['pick_type'].IsChecked = reply.get('pick_type', c['pick_type'].IsChecked)
                 for h in c['save_btn'].Click.handlers:
                     h(None, None)
 
@@ -998,6 +1012,106 @@ class FlexButtonTests(unittest.TestCase):
             conn.Shape, conn.Width, conn.Height = 'rect', 1.0, 0.5
         run_button(w, loop=True)
         self.assertEqual([f.created_with['type'] for f in w.created], [1, 2])   # другу пару (прямокутну) — типом Rect
+
+    # ---------- тип з гнучкого повітровода в моделі (налаштування) ----------
+
+    def _sample(self, w, type_name_='Flex Alu', ident=800):
+        el = FlexSample(ident, [t for t in w.flex_types if t.Name == type_name_][0])
+        w.elements[ident] = el
+        return el
+
+    def test_default_is_type_from_list_not_from_model(self):
+        w = scenario()
+        run_button(w, {'_form': {'value': u'Гибкий', 'loop': False}}, path=CONFIG)
+        self.assertFalse(w.form.pick_type)
+
+    def test_settings_window_saves_type_from_model_flag(self):
+        w = scenario()
+        cfg = {}
+        run_button(w, {'_form': {'value': u'Гибкий', 'loop': False, 'pick_type': True}, '_config': cfg}, path=CONFIG)
+        self.assertEqual(cfg['type_from_model'], 'true')
+        w2 = scenario()
+        run_button(w2, {'_form': {'value': u'Гибкий', 'loop': False, 'pick_type': False}, '_config': cfg}, path=CONFIG)
+        self.assertTrue(w2.form.pick_type)                                    # у вікні показано збережене
+        self.assertEqual(cfg['type_from_model'], 'false')
+
+    def test_settings_dialogs_fallback_asks_about_type_from_model(self):
+        w = scenario()
+        cfg = {}
+        run_button(w, {'_wpf_crash': True, '_alert_result': True, '_config': cfg}, path=CONFIG)
+        self.assertEqual((cfg['loop'], cfg['type_from_model']), ('true', 'true'))
+
+    def test_click_on_flex_duct_takes_its_type_without_list(self):
+        w = scenario()
+        sample = self._sample(w, 'Flex Alu')
+        w.picks = [w.a, w.b, sample]
+        run_button(w, {'_config': {'type_from_model': 'true'}})
+        self.assertEqual(w.created[0].created_with['type'], 2)
+        self.assertEqual([l for l in w.log if l[0] == 'select'], [])
+        picks = [l for l in w.log if l[0] == 'pick']
+        self.assertEqual(len(picks), 3)
+        self.assertIn(u'гнучкий повітровод', picks[2][3])
+        self.assertTrue(picks[2][2])                                          # фільтр дозволяє гнучкий
+
+    def test_sample_filter_rejects_everything_but_flex_ducts(self):
+        for cat, expected in (('OST_FlexDuctCurves', True), ('OST_DuctCurves', False), ('OST_PipeCurves', False),
+                              ('OST_DuctFitting', False)):
+            w = scenario()
+            sample = self._sample(w)
+            sample.Category = category(cat)
+            w.picks = [w.a, w.b, sample]
+            run_button(w, {'_config': {'type_from_model': 'true'}})
+            self.assertEqual([l for l in w.log if l[0] == 'pick'][2][2], expected, cat)
+
+    def test_sample_type_is_remembered_as_last(self):
+        w = scenario()
+        cfg = {'type_from_model': 'true'}
+        w.picks = [w.a, w.b, self._sample(w, 'Flex Alu')]
+        run_button(w, {'_config': cfg})
+        self.assertEqual(cfg['flex_type'], 'Flex Alu')
+
+    def test_esc_on_sample_falls_back_to_type_list(self):
+        w = scenario()
+        w.picks = [w.a, w.b, Cancelled]
+        run_button(w, {'_config': {'type_from_model': 'true'}, u'Тип гнучкого': 'Flex Alu'})
+        self.assertEqual(w.created[0].created_with['type'], 2)
+        self.assertEqual(len([l for l in w.log if l[0] == 'select']), 1)
+        self.assertIn(u'зразок типу не вибрано (Esc)', self._log_text())
+
+    def test_sample_with_wrong_shape_type_falls_back_to_list_with_message(self):
+        w = scenario()
+        w.flex_types = [FlexTypeEl('Flex Rect', 1, shape='rect'), FlexTypeEl('Flex Round', 2, shape='round'),
+                        FlexTypeEl('Flex Round 2', 3, shape='round')]
+        w.picks = [w.a, w.b, self._sample(w, 'Flex Rect')]                    # конектори круглі, зразок — прямокутний тип
+        run_button(w, {'_config': {'type_from_model': 'true'}, u'Тип гнучкого': 'Flex Round 2'})
+        self.assertTrue(any(u'не підходить за формою' in a for a in w.alerts))
+        self.assertEqual(w.created[0].created_with['type'], 3)
+
+    def test_sample_asked_once_in_loop_for_equal_sizes(self):
+        w = self._two_pairs()
+        sample = self._sample(w, 'Flex Alu')
+        c, d = w.elements[3], w.elements[4]
+        c.MEPModel.ConnectorManager.Connectors[0].Radius = 0.2
+        d.ConnectorManager.Connectors[0].Radius = 0.2
+        w.picks = [w.a, w.b, sample, c, d, Cancelled]
+        run_button(w, {'_config': {'type_from_model': 'true'}, u'Тип системи': 'Supply Air'}, loop=True)
+        self.assertEqual([f.created_with['type'] for f in w.created], [2, 2])
+        self.assertEqual(len([l for l in w.log if l[0] == 'pick']), 5)       # 2 + зразок + 2
+
+    def test_sample_with_different_sizes_preselects_its_type_in_size_window(self):
+        w = scenario()
+        self._dia(w, 'a', 200)
+        self._dia(w, 'b', 160)
+        w.picks = [w.a, w.b, self._sample(w, 'Flex Alu')]
+        run_button(w, {'_config': {'type_from_model': 'true'}})
+        self.assertEqual(w.build_state.type, 'Flex Alu')
+        self.assertEqual(w.created[0].created_with['type'], 2)
+
+    def test_type_from_model_off_never_asks_for_sample(self):
+        w = scenario()
+        w.picks = [w.a, w.b]
+        run_button(w)
+        self.assertEqual(len([l for l in w.log if l[0] == 'pick']), 2)
 
     # ---------- швидкість і компактне вікно вибору типу ----------
 

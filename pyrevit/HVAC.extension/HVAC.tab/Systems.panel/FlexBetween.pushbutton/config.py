@@ -46,6 +46,7 @@ XAML = u"""
     <TextBlock Text="Параметр «Гибкая конфигурация» (RBS_FLEX_PATTERN_PARAM) — значення:" Margin="0,0,0,4"/>
     <TextBlock Text="(можна лише обрати зі списку)" Margin="0,0,0,4" Opacity="0.6"/>
     <ComboBox x:Name="param_value" IsEditable="False" Margin="0,0,0,14"/>
+    <CheckBox x:Name="pick_type" Content="Тип гнучкого — з повітровода в моделі: клацнути на нього замість вибору зі списку" Margin="0,0,0,8"/>
     <CheckBox x:Name="loop" Content="Цикл: будувати пари поспіль, поки не натиснуто Esc" Margin="0,0,0,16"/>
     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
       <Button x:Name="save_btn" Content="Зберегти" Width="100" Margin="0,0,8,0" IsDefault="True"/>
@@ -100,9 +101,9 @@ def selected_for(value, items):
     return NO_CHANGE
 
 
-def ask_with_window(value, loop, options):
+def ask_with_window(value, loop, options, pick_type):
     """Власне WPF-вікно: значення параметра, галочка «Цикл», кнопки «Зберегти» / «Скасувати».
-    Повертає (значення, цикл) або None, якщо вікно закрито без збереження."""
+    Повертає (значення, цикл, тип з моделі) або None, якщо вікно закрито без збереження."""
 
     class SettingsWindow(forms.WPFWindow):
         def __init__(self):
@@ -114,11 +115,13 @@ def ask_with_window(value, loop, options):
                 combo.Items.Add(item)
             combo.SelectedItem = selected_for(value, items)
             self.FindName('loop').IsChecked = bool(loop)
+            self.FindName('pick_type').IsChecked = bool(pick_type)
             self.FindName('save_btn').Click += self.on_save
 
         def on_save(self, sender, args):
             chosen = self.FindName('param_value').SelectedItem
-            self.result = (u'' if chosen in (None, NO_CHANGE) else chosen, bool(self.FindName('loop').IsChecked))
+            self.result = (u'' if chosen in (None, NO_CHANGE) else chosen, bool(self.FindName('loop').IsChecked),
+                           bool(self.FindName('pick_type').IsChecked))
             self.Close()
 
     win = SettingsWindow()
@@ -126,7 +129,7 @@ def ask_with_window(value, loop, options):
     return win.result
 
 
-def ask_with_dialogs(value, loop, options):
+def ask_with_dialogs(value, loop, options, pick_type):
     """Запасний варіант на стандартних діалогах pyRevit — якщо власне вікно не вдалося створити."""
     items = choices_for(value, options)
     current = selected_for(value, items)
@@ -137,30 +140,34 @@ def ask_with_dialogs(value, loop, options):
         return None
     loop_on = forms.alert(u'Режим «Цикл» (пари поспіль, поки не натиснуто Esc).\nЗараз: {0}.\n\nУвімкнути?'
                           .format(u'увімкнено' if loop else u'вимкнено'), title=TITLE, yes=True, no=True)
-    return (u'' if picked == NO_CHANGE else picked), bool(loop_on)
+    from_model = forms.alert(u'Тип гнучкого повітровода брати з гнучкого повітровода в моделі (клік) замість списку?\n'
+                             u'Зараз: {0}.'.format(u'так' if pick_type else u'ні'), title=TITLE, yes=True, no=True)
+    return (u'' if picked == NO_CHANGE else picked), bool(loop_on), bool(from_model)
 
 
 def main():
     cfg = script.get_config(CONFIG_SECTION)
     value = hvac_flex_settings.get_config_value(cfg)
     loop = hvac_flex_settings.is_loop(cfg)
+    pick_type = hvac_flex_settings.is_type_from_model(cfg)
 
     pairs = read_options()
     options = [text for _num, text in pairs]
     try:
-        result = ask_with_window(value, loop, options)
+        result = ask_with_window(value, loop, options, pick_type)
     except Exception:
         hvac_log.log_exception(TOOL, u'вікно налаштувань (WPF) не вдалося, беру стандартні діалоги')
-        result = ask_with_dialogs(value, loop, options)
+        result = ask_with_dialogs(value, loop, options, pick_type)
     if result is None:                        # вікно закрито без збереження — нічого не змінюємо
         hvac_log.log(TOOL, u'налаштування не змінено')
         script.exit()
     number = dict((text, num) for num, text in pairs).get(result[0])      # число варіанта — щоб кнопка не перебирала його щоразу
     hvac_flex_settings.set_config_value(cfg, result[0], number)
     hvac_flex_settings.set_loop(cfg, result[1])
+    hvac_flex_settings.set_type_from_model(cfg, result[2])
     script.save_config()
-    hvac_log.log(TOOL, u'збережено: «Гибкая конфигурация» = «{0}» (число {1}), цикл {2}'.format(
-        result[0], number, result[1]))
+    hvac_log.log(TOOL, u'збережено: «Гибкая конфигурация» = «{0}» (число {1}), цикл {2}, тип з моделі {3}'.format(
+        result[0], number, result[1], result[2]))
 
 
 hvac_log.run(TOOL, main, doc)

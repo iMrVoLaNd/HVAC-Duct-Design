@@ -155,6 +155,40 @@ class DuctElementFilter(UI.Selection.ISelectionFilter):
         return True
 
 
+class FlexSampleFilter(UI.Selection.ISelectionFilter):
+    """Дозволяє клацнути лише на гнучкий повітровод — з нього беремо тип."""
+
+    __namespace__ = 'HvacFlexSample_' + uuid.uuid4().hex          # див. примітку в DuctElementFilter
+
+    def AllowElement(self, e):
+        try:
+            cat = e.Category
+            return cat is not None and eid_int(cat.Id) == int(DB.BuiltInCategory.OST_FlexDuctCurves)
+        except Exception:
+            return False
+
+    def AllowReference(self, reference, position):
+        return True
+
+
+def pick_sample_type(by_name):
+    """Клік на гнучкий повітровод у моделі → його тип (елемент з by_name). Esc — None (тоді питаємо зі списку)."""
+    try:
+        ref = uidoc.Selection.PickObject(UI.Selection.ObjectType.Element, FlexSampleFilter(),
+                                         u'Клацніть на гнучкий повітровод, з якого взяти тип (Esc — обрати зі списку)')
+    except OperationCanceledException:
+        hvac_log.log(TOOL, u'зразок типу не вибрано (Esc) — вибір зі списку')
+        return None
+    flex = doc.GetElement(ref.ElementId)
+    name = type_name(doc.GetElement(flex.GetTypeId()))
+    hvac_log.log(TOOL, u'тип зі зразка в моделі: «{0}»'.format(name))
+    if name not in by_name:
+        forms.alert(u'Тип «{0}» не знайдено серед типів гнучких повітроводів. Оберіть зі списку.'.format(name),
+                    title=u'Гнучкий повітровод')
+        return None
+    return by_name[name]
+
+
 def pick_element(prompt):
     """Вибір цілого елемента (клік будь-де на ньому)."""
     ref = uidoc.Selection.PickObject(UI.Selection.ObjectType.Element, DuctElementFilter(), prompt)
@@ -595,6 +629,11 @@ def choose_options(s0, s1, entries, state):
     by_name = dict((name, el) for name, _shape, el in entries)
     entry_pairs = [(name, shape) for name, shape, _el in entries]
     last = load_last('flex_type')
+    sample = None
+    if state.get('from_model') and state.get('type') is None:
+        sample = pick_sample_type(by_name)                 # клік на гнучкий повітровод замість вибору зі списку
+        if sample is not None:
+            last = type_name(sample)
     if hvac_sizes.same_size(s0, s1):
         size = s0
         names = hvac_sizes.types_for_shape(entry_pairs, size.get('shape'))
@@ -604,6 +643,13 @@ def choose_options(s0, s1, entries, state):
         cur = state.get('type')
         if cur is not None and type_name(cur) in names:
             return cur, size
+        if sample is not None:
+            if type_name(sample) in names:
+                state['type'] = sample
+                save_last('flex_type', type_name(sample))
+                return sample, size
+            forms.alert(u'Тип «{0}» не підходить за формою («{1}»). Оберіть інший зі списку.'.format(
+                type_name(sample), hvac_sizes.SHAPE_NAMES.get(size.get('shape'), u'?')), title=u'Гнучкий повітровод')
         chosen = choose_from([by_name[n] for n in names], names, u'Тип гнучкого повітровода:', 'flex_type')
         state['type'] = chosen
         return chosen, size
@@ -664,11 +710,12 @@ def main():
     config_value = hvac_flex_settings.get_config_value(cfg)
     # Режим циклу — галочка у вікні налаштувань (Shift+клік), за замовчуванням вимкнено.
     loop = hvac_flex_settings.is_loop(cfg)
-    hvac_log.log(TOOL, u'типів гнучких: {0} ({1}); «Гибкая конфигурация» = «{2}», цикл {3}, журнал {4}'.format(
+    hvac_log.log(TOOL, u'типів гнучких: {0} ({1}); «Гибкая конфигурация» = «{2}», цикл {3}, тип з моделі {4}, журнал {5}'.format(
         len(types), u', '.join(u'{0}[{1}]'.format(n, sh) for n, sh, _t in entries), config_value, loop,
-        hvac_log.log_path()))
+        hvac_flex_settings.is_type_from_model(cfg), hvac_log.log_path()))
     tail = u'Esc — завершити' if loop else u'Esc — скасувати'
-    system_state = {'id': None, 'type': None, 'value': config_value,
+    system_state = {'id': None, 'type': None, 'from_model': hvac_flex_settings.is_type_from_model(cfg),
+                    'value': config_value,
                     'number': hvac_flex_settings.get_config_number(cfg), 'learned': None,
                     'warnings': [], 'dumped': False}
     made = 0
