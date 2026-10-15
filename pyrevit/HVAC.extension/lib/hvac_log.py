@@ -10,9 +10,7 @@
 import io
 import os
 import sys
-import tempfile
 import time
-import traceback
 
 LOG_NAME = 'hvac-tools.log'
 MAX_BYTES = 512 * 1024
@@ -24,8 +22,11 @@ def log_dir():
     base = os.environ.get('HVAC_LOG_DIR')
     if not base:
         appdata = os.environ.get('APPDATA')
-        base = os.path.join(appdata, 'HVAC-Duct-Design') if appdata else os.path.join(tempfile.gettempdir(),
-                                                                                    'HVAC-Duct-Design')
+        if appdata:
+            base = os.path.join(appdata, 'HVAC-Duct-Design')
+        else:
+            import tempfile                      # важкий імпорт — лише коли справді потрібен
+            base = os.path.join(tempfile.gettempdir(), 'HVAC-Duct-Design')
     return base
 
 
@@ -43,7 +44,28 @@ def _to_text(value):
             return u'<?>'
 
 
+_BUFFER = []           # рядки, накопичені під час run(): пишемо одним відкриттям файлу, а не по одному на рядок
+_BUFFERING = [False]
+
+
 def _write(text):
+    """Додати рядок: під час run() — у пам'ять (flush() запише все одним махом), поза ним — одразу у файл."""
+    if _BUFFERING[0]:
+        _BUFFER.append(text)
+        return
+    _write_now(text)
+
+
+def flush():
+    """Записати накопичені рядки у файл (один раз відкриваємо файл)."""
+    if not _BUFFER:
+        return
+    text = u'\n'.join(_BUFFER)
+    del _BUFFER[:]
+    _write_now(text)
+
+
+def _write_now(text):
     try:
         folder = log_dir()
         if not os.path.isdir(folder):
@@ -85,9 +107,11 @@ def log_start(tool, doc=None):
 
 
 def log_exception(tool, where=u''):
-    """Повний traceback поточного винятку; повертає його текст."""
+    """Повний traceback поточного винятку; повертає його текст. Пишемо одразу: за помилки буфер не чекає кінця."""
+    import traceback                             # лише за помилки: на звичайному запуску модуль не вантажимо
     text = traceback.format_exc()
     log(tool, u'ПОМИЛКА {0}\n{1}'.format(where, text))
+    flush()
     return text
 
 
@@ -100,18 +124,30 @@ def is_not_error(exc):
 def run(tool, func, doc=None):
     """Запустити func() із журналом. Помилку — у файл, у вікно виводу й діалог, без білого вікна без пояснень.
 
-    Esc і script.exit() пропускаємо далі як є."""
-    log_start(tool, doc)
+    Esc і script.exit() пропускаємо далі як є. Рядки журналу збираються в пам'яті й записуються в кінці одним
+    махом (а також одразу при помилці); у кінці пишеться тривалість запуску."""
+    started = time.time()
+    _BUFFERING[0] = True
     try:
-        func()
-    except Exception as ex:
-        if is_not_error(ex):
-            log(tool, u'завершено ({0})'.format(type(ex).__name__))
-            raise
-        text = log_exception(tool)
-        _report(tool, text)
-    else:
-        log(tool, u'=== кінець')
+        log_start(tool, doc)
+        try:
+            func()
+        except Exception as ex:
+            if is_not_error(ex):
+                log(tool, u'завершено ({0}), {1} мс'.format(type(ex).__name__, elapsed_ms(started)))
+                raise
+            text = log_exception(tool)
+            _report(tool, text)
+        else:
+            log(tool, u'=== кінець, {0} мс'.format(elapsed_ms(started)))
+    finally:
+        _BUFFERING[0] = False
+        flush()
+
+
+def elapsed_ms(started):
+    """Скільки мілісекунд минуло від started (time.time())."""
+    return int((time.time() - started) * 1000)
 
 
 def _report(tool, text):
