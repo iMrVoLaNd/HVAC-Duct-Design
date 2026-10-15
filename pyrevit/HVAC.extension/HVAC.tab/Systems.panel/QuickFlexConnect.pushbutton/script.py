@@ -815,11 +815,11 @@ def main():
         try:
             # Підказки йдуть у рядок стану Revit (це текст запиту PickObject): що робити зараз і що вже обрано.
             pair_no = u'пара {0}: '.format(made + 1) if loop else u''
-            e0, p0 = pick_element(u'QuickFlexConnect · {0}1/2 — клацніть на першому елементі біля потрібного конектора '
-                                  u'({1})'.format(pair_no, tail))
+            e0, p0 = pick_element(u'QuickFlexConnect · {0}1/2 — клацніть на першому елементі, конектор буде найближчий '
+                                  u'до кліку ({1})'.format(pair_no, tail))
             first = describe_pick(e0, p0)
-            e1, p1 = pick_element(u'QuickFlexConnect · {0}2/2 — перший: {1}. Клацніть на другому елементі біля '
-                                  u'потрібного конектора ({2})'.format(pair_no, first, tail))
+            e1, p1 = pick_element(u'QuickFlexConnect · {0}2/2 — перший: {1}. Клацніть на другому елементі, конектор буде '
+                                  u'найближчий до кліку ({2})'.format(pair_no, first, tail))
         except OperationCanceledException:
             hvac_log.log(TOOL, u'вибір скасовано (Esc)')
             break
