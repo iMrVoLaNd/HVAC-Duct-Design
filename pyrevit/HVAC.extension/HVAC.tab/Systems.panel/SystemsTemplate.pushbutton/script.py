@@ -6,10 +6,17 @@ __doc__ = (u'Створює шаблон виду з фільтрами для �
            u'заливка кольором системи з палітри, лінії бічних стінок обраного кольору і товщини.')
 
 # Сумісно з IronPython 3.4 (pyRevit) і CPython: без f-рядків та сучасного синтаксису.
-from pyrevit import revit, DB, forms, script
-from System.Collections.Generic import List
+import hvac_log
+TOOL = 'systems_template'
 
-import hvac_palette
+try:
+    from pyrevit import revit, DB, forms, script
+    from System.Collections.Generic import List
+
+    import hvac_palette
+except Exception:
+    hvac_log.log_exception(TOOL, u'імпорт модулів')
+    raise
 
 doc = revit.doc
 output = script.get_output()
@@ -253,4 +260,4 @@ def main():
             view.ViewTemplateId = template.Id
 
 
-main()
+hvac_log.run(TOOL, main, doc)

@@ -12,15 +12,18 @@ import re
 import runpy
 import sys
 import types
+import tempfile
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(HERE, '..', 'HVAC.extension', 'HVAC.tab', 'Systems.panel', 'FlexBetween.pushbutton', 'script.py')
 CONFIG = os.path.join(HERE, '..', 'HVAC.extension', 'HVAC.tab', 'Systems.panel', 'FlexBetween.pushbutton', 'config.py')
 LIB = os.path.join(HERE, '..', 'HVAC.extension', 'lib')
+os.environ['HVAC_LOG_DIR'] = tempfile.mkdtemp()      # журнал тестів — не в реальний %APPDATA%
 if LIB not in sys.path:
     sys.path.insert(0, LIB)
 import hvac_flex_settings
+import hvac_log
 
 
 class XYZ(object):
@@ -437,6 +440,68 @@ class FlexButtonTests(unittest.TestCase):
             run_button(w)
             spaces.append([l[4] for l in w.log if l[0] == 'pick'][0])
         self.assertTrue(all(spaces) and spaces[0] != spaces[1], spaces)
+
+    # ---------- журнал ----------
+
+    def _log_text(self):
+        with io.open(hvac_log.log_path(), encoding='utf-8') as f:
+            return f.read()
+
+    def test_normal_run_leaves_trail_in_log(self):
+        w = scenario()
+        w.picks = [w.a, w.b]
+        run_button(w)
+        text = self._log_text()
+        self.assertIn(u'[flex_between] === запуск', text)
+        self.assertIn(u'вибрано:', text)
+        self.assertIn(u'пара конекторів:', text)
+        self.assertIn(u'FlexDuct.Create: варіант з дотичними', text)
+        self.assertIn(u'створено, id', text)
+
+    def test_old_api_fallback_is_logged(self):
+        w = scenario(tangent_api=False)
+        w.picks = [w.a, w.b]
+        run_button(w)
+        text = self._log_text()
+        self.assertIn(u'недоступний', text)
+        self.assertIn(u'варіант з 4 точками', text)
+
+    def test_build_error_is_logged_with_traceback(self):
+        w = scenario()
+        w.b.ConnectorManager.Connectors[0].Origin = XYZ(0, 0, 0.0012)
+        w.picks = [w.a, w.b]
+        run_button(w)
+        text = self._log_text()
+        self.assertIn(u'транзакцію відкотено', text)
+        self.assertIn(u'надто близько', text)
+        self.assertTrue(any(hvac_log.log_path() in a for a in w.alerts))      # шлях до журналу в повідомленні
+
+    def test_unexpected_error_is_logged_and_reported_instead_of_bare_crash(self):
+        class BadType(object):
+            Id = EId(7)
+
+            @property
+            def Name(self):
+                raise RuntimeError('несподіванка-9001')
+
+        w = scenario()
+        w.flex_types = [BadType()]
+        run_button(w)                                        # не кидає: помилку обробив журнал
+        self.assertIn(u'RuntimeError: несподіванка-9001', self._log_text())
+        self.assertTrue(any(hvac_log.log_path() in a for a in w.alerts))
+        self.assertTrue(any(l[0] == 'md' and 'несподіванка-9001' in l[1] for l in w.log))
+
+    def test_cancel_by_esc_is_logged_without_error(self):
+        w = scenario()
+        w.picks = [Cancelled]
+        run_button(w)
+        self.assertIn(u'вибір скасовано (Esc)', self._log_text())
+
+    def test_config_window_errors_are_logged_too(self):
+        w = scenario()
+        w.flex_types = [types.SimpleNamespace(Name='A', Id=EId(1))]
+        run_button(w, {'_form': {'flex_type': 'A'}}, path=CONFIG)      # у формі немає 'loop' → KeyError
+        self.assertIn(u'KeyError', self._log_text())
 
     def test_selection_is_whole_element_not_a_point(self):
         w = scenario()

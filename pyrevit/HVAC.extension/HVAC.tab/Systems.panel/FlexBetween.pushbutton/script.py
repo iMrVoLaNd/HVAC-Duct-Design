@@ -9,11 +9,18 @@ __doc__ = (u'Обираєте два елементи (повітровод, а�
 # Сумісно з IronPython 3.4 (pyRevit) і CPython: без f-рядків та сучасного синтаксису.
 import uuid
 
-from pyrevit import revit, DB, UI, forms, script
-from System.Collections.Generic import List
-from Autodesk.Revit.Exceptions import OperationCanceledException
+import hvac_log
+TOOL = 'flex_between'
 
-import hvac_flex_settings
+try:
+    from pyrevit import revit, DB, UI, forms, script
+    from System.Collections.Generic import List
+    from Autodesk.Revit.Exceptions import OperationCanceledException
+
+    import hvac_flex_settings
+except Exception:
+    hvac_log.log_exception(TOOL, u'імпорт модулів')
+    raise
 
 doc = revit.doc
 uidoc = revit.uidoc
@@ -44,6 +51,20 @@ def eid_int(eid):
 
 def type_name(t):
     return DB.Element.Name.GetValue(t)
+
+
+def category_name(el):
+    try:
+        return el.Category.Name
+    except Exception:
+        return u'?'
+
+
+def type_label(el):
+    try:
+        return doc.GetElement(el.GetTypeId()).Name
+    except Exception:
+        return u'?'
 
 
 # ---------- конектори ----------
@@ -214,9 +235,11 @@ def create_flex(c0, c1, type_id, system_id, level_id):
     pts.Add(p0)
     pts.Add(p1)
     try:
-        return DB.Mechanical.FlexDuct.Create(doc, system_id, type_id, level_id, z0, z1.Negate(), pts)
-    except TypeError:
-        pass            # старіший API без дотичних
+        flex = DB.Mechanical.FlexDuct.Create(doc, system_id, type_id, level_id, z0, z1.Negate(), pts)
+        hvac_log.log(TOOL, u'FlexDuct.Create: варіант з дотичними')
+        return flex
+    except TypeError as ex:
+        hvac_log.log(TOOL, u'FlexDuct.Create з дотичними недоступний ({0}), пробую 4 точки'.format(ex))
     # Запасний варіант: проміжні точки задають вихід по нормалі з обох конекторів.
     k = max(dist * BEND_FACTOR, BEND_MIN_FT)
     pts = List[DB.XYZ]()
@@ -224,7 +247,9 @@ def create_flex(c0, c1, type_id, system_id, level_id):
     pts.Add(p0.Add(z0.Multiply(k)))
     pts.Add(p1.Add(z1.Multiply(k)))
     pts.Add(p1)
-    return DB.Mechanical.FlexDuct.Create(doc, system_id, type_id, level_id, pts)
+    flex = DB.Mechanical.FlexDuct.Create(doc, system_id, type_id, level_id, pts)
+    hvac_log.log(TOOL, u'FlexDuct.Create: варіант з 4 точками')
+    return flex
 
 
 def apply_size(flex, connector):
@@ -256,6 +281,8 @@ def build_one(c0, c1, flex_type, system_state):
     level_id = level_id_for(c0)
     if level_id is None:
         raise ValueError(u'У проєкті немає рівнів.')
+    hvac_log.log(TOOL, u'побудова: тип {0}, система {1}, рівень {2}, довжина {3:.3f} ft'.format(
+        type_name(flex_type), eid_int(system_id), eid_int(level_id), c0.Origin.DistanceTo(c1.Origin)))
     t = DB.Transaction(doc, u'Гнучкий повітровод між конекторами')
     t.Start()
     try:
@@ -263,8 +290,10 @@ def build_one(c0, c1, flex_type, system_state):
         apply_size(flex, c0)
         connect_ends(flex, c0, c1)
         t.Commit()
+        hvac_log.log(TOOL, u'створено, id {0}'.format(eid_int(flex.Id)))
     except Exception:
         t.RollBack()
+        hvac_log.log_exception(TOOL, u'побудова (транзакцію відкотено)')
         raise
     return flex
 
@@ -283,6 +312,7 @@ def main():
         flex_type = choose_from(types, names, u'Тип гнучкого повітровода:', hvac_flex_settings.FLEX_TYPE_KEY)
     # Режим циклу — галочка у вікні налаштувань (Shift+клік), за замовчуванням вимкнено.
     loop = hvac_flex_settings.is_loop(cfg)
+    hvac_log.log(TOOL, u'тип «{0}», цикл {1}, журнал {2}'.format(type_name(flex_type), loop, hvac_log.log_path()))
     tail = u'Esc — завершити' if loop else u'Esc — скасувати'
     system_state = {'id': None}
     made = 0
@@ -291,13 +321,20 @@ def main():
             e0 = pick_element(u'Перший елемент: повітровод, арматура, фасонна частина або обладнання ({0})'.format(tail))
             e1 = pick_element(u'Другий елемент ({0})'.format(tail))
         except OperationCanceledException:
+            hvac_log.log(TOOL, u'вибір скасовано (Esc)')
             break
+        hvac_log.log(TOOL, u'вибрано: {0} «{1}» id {2} і {3} «{4}» id {5}'.format(
+            category_name(e0), type_label(e0), eid_int(e0.Id), category_name(e1), type_label(e1), eid_int(e1.Id)))
         if eid_int(e0.Id) == eid_int(e1.Id):
             forms.alert(u'Це той самий елемент. Оберіть два різні.', title=u'Гнучкий повітровод')
             if loop:
                 continue
             break
         pair = closest_pair(e0, e1)
+        if pair is not None:
+            hvac_log.log(TOOL, u'пара конекторів: ({0:.2f}, {1:.2f}, {2:.2f}) → ({3:.2f}, {4:.2f}, {5:.2f})'.format(
+                pair[0].Origin.X, pair[0].Origin.Y, pair[0].Origin.Z,
+                pair[1].Origin.X, pair[1].Origin.Y, pair[1].Origin.Z))
         if pair is None:
             forms.alert(u'На одному з елементів немає вільних конекторів.', title=u'Гнучкий повітровод')
             if loop:
@@ -307,11 +344,13 @@ def main():
             build_one(pair[0], pair[1], flex_type, system_state)
             made += 1
         except Exception as ex:
-            forms.alert(u'Не вдалося побудувати гнучкий повітровод:\n{0}'.format(ex), title=u'Гнучкий повітровод')
+            hvac_log.log(TOOL, u'побудова не вдалася: {0}'.format(ex))
+            forms.alert(u'Не вдалося побудувати гнучкий повітровод:\n{0}\n\nЖурнал: {1}'.format(ex, hvac_log.log_path()),
+                        title=u'Гнучкий повітровод')
         if not loop:
             break
     if made:
         output.print_md(u'**Гнучких повітроводів створено: {0}** (тип «{1}»)'.format(made, type_name(flex_type)))
 
 
-main()
+hvac_log.run(TOOL, main, doc)

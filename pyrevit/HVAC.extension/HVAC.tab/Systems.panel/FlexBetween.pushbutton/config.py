@@ -2,9 +2,16 @@
 """Вікно налаштувань кнопки «Гнучкий між конекторами» (відкривається Shift+кліком по кнопці):
 тип гнучкого повітровода (за замовчуванням «Гибкий») і перемикач «Цикл» (за замовчуванням вимкнено)."""
 # Сумісно з IronPython 3.4 (pyRevit) і CPython: без f-рядків та сучасного синтаксису.
-from pyrevit import revit, DB, forms, script
+import hvac_log
+TOOL = 'flex_between_config'
 
-import hvac_flex_settings
+try:
+    from pyrevit import revit, DB, forms, script
+
+    import hvac_flex_settings
+except Exception:
+    hvac_log.log_exception(TOOL, u'імпорт модулів')
+    raise
 
 doc = revit.doc
 CONFIG_SECTION = hvac_flex_settings.SECTION
@@ -43,4 +50,4 @@ def main():
     script.save_config()
 
 
-main()
+hvac_log.run(TOOL, main, doc)
