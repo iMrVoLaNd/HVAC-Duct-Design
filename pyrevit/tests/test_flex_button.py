@@ -393,9 +393,9 @@ def run_button(world, answers=None, loop=False, path=None):
             nxt = world.picks.pop(0)
             if nxt is Cancelled:
                 raise Cancelled()
-            el = nxt
+            el, pt = nxt if isinstance(nxt, tuple) else (nxt, None)       # елемент або (елемент, точка кліку)
             world.log.append(('pick', otype, flt.AllowElement(el), prompt, getattr(type(flt), '__namespace__', None)))
-            return types.SimpleNamespace(ElementId=el.Id)
+            return types.SimpleNamespace(ElementId=el.Id, GlobalPoint=pt)
 
     UI = types.SimpleNamespace(Selection=types.SimpleNamespace(
         ISelectionFilter=object, ObjectType=types.SimpleNamespace(Element='element', PointOnElement='pt')))
@@ -1050,7 +1050,7 @@ class FlexButtonTests(unittest.TestCase):
         self.assertEqual([l for l in w.log if l[0] == 'select'], [])
         picks = [l for l in w.log if l[0] == 'pick']
         self.assertEqual(len(picks), 3)
-        self.assertIn(u'гнучкий повітровод', picks[2][3])
+        self.assertIn(u'гнучкому повітроводі', picks[2][3])
         self.assertTrue(picks[2][2])                                          # фільтр дозволяє гнучкий
 
     def test_sample_filter_rejects_everything_but_flex_ducts(self):
@@ -1500,12 +1500,12 @@ class FlexButtonTests(unittest.TestCase):
         run_button(w)
         self.assertIn(u'вибір скасовано (Esc)', self._log_text())
 
-    def test_selection_is_whole_element_not_a_point(self):
+    def test_selection_is_click_on_element_with_point(self):
         w = scenario()
         w.picks = [w.a, w.b]
         run_button(w)
         picks = [l for l in w.log if l[0] == 'pick']
-        self.assertEqual([p[1] for p in picks], ['element', 'element'])
+        self.assertEqual([p[1] for p in picks[:2]], ['pt', 'pt'])                # PointOnElement: потрібна точка кліку
 
     def test_selection_filter_allows_only_duct_categories(self):
         allowed = ('OST_DuctCurves', 'OST_DuctAccessory', 'OST_DuctFitting', 'OST_MechanicalEquipment',
@@ -1532,13 +1532,119 @@ class FlexButtonTests(unittest.TestCase):
         self.assertEqual(w.created[0].created_with['points'][1], (3, 0, 1))
         self.assertTrue([l for l in w.log if l[0] == 'pick'][1][2])           # фільтр його дозволяє
 
-    def test_filter_rejects_element_without_free_connectors(self):
+    def test_element_with_all_connectors_busy_is_selectable_but_explained(self):
         w = scenario()
         busy = FakeDuct(60, [Connector(None, XYZ(1, 1, 1), XYZ(1, 0, 0), connected=True)])
         w.elements[60] = busy
         w.picks = [busy, w.b]
         run_button(w)
+        self.assertTrue([l for l in w.log if l[0] == 'pick'][0][2])              # фільтр не мовчить, а пропускає
+        self.assertEqual(w.created, [])
+        self.assertTrue(any(u'немає вільних конекторів' in a and u'вільних 0' in a for a in w.alerts))
+        self.assertIn(u'немає вільних конекторів:', self._log_text())
+        self.assertIn(u'підключений', self._log_text())                          # у журналі — деталі конекторів
+
+    def test_element_without_hvac_connectors_is_rejected_and_logged(self):
+        w = scenario()
+        pipe_only = FakeDuct(61, [Connector(None, XYZ(1, 1, 1), XYZ(1, 0, 0), domain=Domain.DomainPiping)])
+        w.elements[61] = pipe_only
+        w.picks = [pipe_only, w.b]
+        run_button(w)
         self.assertFalse([l for l in w.log if l[0] == 'pick'][0][2])
+        text = self._log_text()
+        self.assertIn(u'елемент відхилено фільтром', text)
+        self.assertIn(u'piping', text)                                           # домен конектора видно в журналі
+
+    def test_rejection_is_logged_once_per_element(self):
+        w = scenario()
+        pipe_only = FakeDuct(62, [Connector(None, XYZ(1, 1, 1), XYZ(1, 0, 0), domain=Domain.DomainPiping)])
+        w.elements[62] = pipe_only
+        w.picks = [pipe_only, pipe_only, w.b]
+        run_button(w)
+        self.assertEqual(self._log_text().count(u'елемент відхилено фільтром: ') >= 1, True)
+        marker = u'id 62;'
+        self.assertEqual(sum(1 for line in self._log_text().splitlines() if marker in line and u'відхилено' in line
+                             and line.startswith(self._today())), 1)
+
+    @staticmethod
+    def _today():
+        import time
+        return time.strftime('%Y-%m-%d')
+
+    # ---------- конектор — найближчий до місця кліку ----------
+
+    def _two_end_duct(self, w):
+        d = FakeDuct(5, [Connector(None, XYZ(0, 20, 0), XYZ(-1, 0, 0), radius=0.2),
+                         Connector(None, XYZ(10, 20, 0), XYZ(1, 0, 0), radius=0.2)], level=EId(100))
+        w.elements[5] = d
+        return d
+
+    def test_click_near_far_end_takes_that_connector_not_the_closest_to_the_other_element(self):
+        w = scenario()
+        d = self._two_end_duct(w)
+        w.picks = [(w.a, XYZ(0, 0, 0)), (d, XYZ(9.5, 20, 0))]                   # клік біля дальнього кінця
+        run_button(w)
+        self.assertEqual(w.created[0].created_with['points'], [(0, 0, 0), (10, 20, 0)])
+
+    def test_click_near_near_end_takes_near_end(self):
+        w = scenario()
+        d = self._two_end_duct(w)
+        w.picks = [(w.a, XYZ(0, 0, 0)), (d, XYZ(0.3, 20, 0))]
+        run_button(w)
+        self.assertEqual(w.created[0].created_with['points'][1], (0, 20, 0))
+
+    def test_click_point_decides_for_first_element_too(self):
+        w = scenario()
+        d = self._two_end_duct(w)
+        w.picks = [(d, XYZ(9.8, 20, 0)), (w.b, XYZ(3, 0, 1))]
+        run_button(w)
+        self.assertEqual(w.created[0].created_with['points'], [(10, 20, 0), (3, 0, 1)])
+
+    def test_clicked_connector_is_free_one_even_if_click_is_nearer_to_busy_one(self):
+        w = scenario()
+        d = FakeDuct(5, [Connector(None, XYZ(0, 20, 0), XYZ(-1, 0, 0), connected=True),
+                         Connector(None, XYZ(10, 20, 0), XYZ(1, 0, 0))], level=EId(100))
+        w.elements[5] = d
+        w.picks = [(w.a, XYZ(0, 0, 0)), (d, XYZ(0, 20, 0))]                     # клік біля зайнятого — береться вільний
+        run_button(w)
+        self.assertEqual(w.created[0].created_with['points'][1], (10, 20, 0))
+
+    def test_without_click_points_falls_back_to_closest_pair(self):
+        w = scenario()
+        d = self._two_end_duct(w)
+        w.picks = [w.a, d]                                                       # без точок кліку
+        run_button(w)
+        self.assertEqual(w.created[0].created_with['points'][1], (0, 20, 0))
+
+    # ---------- підказки в рядку стану ----------
+
+    def test_status_bar_prompts_say_step_and_what_is_already_chosen(self):
+        w = scenario()
+        w.picks = [(w.a, XYZ(0, 0, 0)), (w.b, XYZ(3, 0, 1))]
+        run_button(w)
+        prompts = [l[3] for l in w.log if l[0] == 'pick']
+        self.assertIn(u'QuickFlexConnect', prompts[0])
+        self.assertIn(u'1/2', prompts[0])
+        self.assertIn(u'Esc — скасувати', prompts[0])
+        self.assertIn(u'2/2', prompts[1])
+        self.assertIn(u'перший: ', prompts[1])
+        self.assertIn(u'Ø', prompts[1])                                          # переріз першого конектора вже в підказці
+
+    def test_status_bar_prompt_in_loop_has_pair_number_and_esc_finish(self):
+        w = self._two_pairs()
+        run_button(w, {u'Тип гнучкого': 'Flex Alu', u'Тип системи': 'Supply Air'}, loop=True)
+        prompts = [l[3] for l in w.log if l[0] == 'pick']
+        self.assertIn(u'пара 1:', prompts[0])
+        self.assertIn(u'пара 2:', prompts[2])
+        self.assertIn(u'Esc — завершити', prompts[0])
+
+    def test_sample_prompt_mentions_step_3_and_esc_to_list(self):
+        w = scenario()
+        w.picks = [w.a, w.b, self._sample(w)]
+        run_button(w, {'_config': {'type_from_model': 'true'}})
+        prompt = [l[3] for l in w.log if l[0] == 'pick'][2]
+        self.assertIn(u'3/3', prompt)
+        self.assertIn(u'Esc — обрати зі списку', prompt)
 
     def test_connectors_follow_pick_order_for_size_and_system(self):
         w = scenario()

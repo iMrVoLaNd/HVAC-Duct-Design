@@ -116,6 +116,44 @@ def free_connectors(el):
     return [c for c in element_connectors(el) if is_free_hvac(c)]
 
 
+def hvac_connectors(el):
+    """Усі вентиляційні конектори елемента (вільні й зайняті)."""
+    result = []
+    for c in element_connectors(el):
+        try:
+            if c.Domain == DB.Domain.DomainHvac:
+                result.append(c)
+        except Exception:
+            pass
+    return result
+
+
+def connector_text(c):
+    """Короткий опис конектора для журналу: тип, домен, чи підключений, координати."""
+    try:
+        o = c.Origin
+        return u'{0}/{1}/{2}@({3:.2f}, {4:.2f}, {5:.2f})'.format(
+            c.ConnectorType, c.Domain, u'підключений' if c.IsConnected else u'вільний', o.X, o.Y, o.Z)
+    except Exception:
+        return u'?'
+
+
+_REJECTED = set()
+
+
+def note_rejected(e):
+    """Елемент дозволеної категорії без вентиляційних конекторів не вибирається: пишемо в журнал (раз на елемент)."""
+    try:
+        key = eid_int(e.Id)
+        if key in _REJECTED or len(_REJECTED) >= 30:
+            return
+        _REJECTED.add(key)
+        hvac_log.log(TOOL, u'елемент відхилено фільтром: {0} id {1}; конектори: {2}'.format(
+            category_name(e), key, u'; '.join(connector_text(c) for c in element_connectors(e)) or u'немає'))
+    except Exception:
+        pass
+
+
 _ALLOWED_CACHE = []
 
 
@@ -139,7 +177,8 @@ def is_allowed_category(el):
 
 
 class DuctElementFilter(UI.Selection.ISelectionFilter):
-    """Дозволяє вибрати лише повітроводи, арматуру, фасонні частини й обладнання з вільним вентиляційним конектором."""
+    """Дозволяє вибрати лише повітроводи, арматуру, фасонні частини, обладнання й повітророзподільники, у яких є
+    вентиляційні конектори. Чи вільні вони, перевіряємо вже після кліку — щоб пояснити, а не мовчки не реагувати."""
 
     # CPython-рушій pyRevit (pythonnet 3): клас, що реалізує .NET-інтерфейс, потребує __namespace__,
     # причому щоразу нового (інакше «Duplicate type name» при повторному запуску). У IronPython це просто атрибут.
@@ -147,7 +186,12 @@ class DuctElementFilter(UI.Selection.ISelectionFilter):
 
     def AllowElement(self, e):
         try:
-            return is_allowed_category(e) and len(free_connectors(e)) > 0
+            if not is_allowed_category(e):
+                return False
+            if hvac_connectors(e):
+                return True
+            note_rejected(e)
+            return False
         except Exception:
             return False
 
@@ -175,7 +219,7 @@ def pick_sample_type(by_name):
     """Клік на гнучкий повітровод у моделі → його тип (елемент з by_name). Esc — None (тоді питаємо зі списку)."""
     try:
         ref = uidoc.Selection.PickObject(UI.Selection.ObjectType.Element, FlexSampleFilter(),
-                                         u'Клацніть на гнучкий повітровод, з якого взяти тип (Esc — обрати зі списку)')
+                                         u'QuickFlexConnect · 3/3 — клацніть на гнучкому повітроводі, з якого взяти тип (Esc — обрати зі списку)')
     except OperationCanceledException:
         hvac_log.log(TOOL, u'зразок типу не вибрано (Esc) — вибір зі списку')
         return None
@@ -190,9 +234,22 @@ def pick_sample_type(by_name):
 
 
 def pick_element(prompt):
-    """Вибір цілого елемента (клік будь-де на ньому)."""
-    ref = uidoc.Selection.PickObject(UI.Selection.ObjectType.Element, DuctElementFilter(), prompt)
-    return doc.GetElement(ref.ElementId)
+    """Клік на елементі: повертає (елемент, точка кліку). Точка потрібна, щоб взяти найближчий до кліку конектор."""
+    ref = uidoc.Selection.PickObject(UI.Selection.ObjectType.PointOnElement, DuctElementFilter(), prompt)
+    point = None
+    try:
+        point = ref.GlobalPoint
+    except Exception:
+        point = None
+    return doc.GetElement(ref.ElementId), point
+
+
+def nearest_free(el, point):
+    """Вільний конектор елемента, найближчий до точки кліку; None — вільних немає."""
+    free = free_connectors(el)
+    if not free:
+        return None
+    return min(free, key=lambda c: c.Origin.DistanceTo(point))
 
 
 def closest_pair(el0, el1):
@@ -201,6 +258,39 @@ def closest_pair(el0, el1):
     if not free0 or not free1:
         return None
     return min(((a, b) for a in free0 for b in free1), key=lambda p: p[0].Origin.DistanceTo(p[1].Origin))
+
+
+def choose_pair(e0, p0, e1, p1):
+    """Пара конекторів: кожен — найближчий до місця кліку на своєму елементі. Немає точок кліку — найближча пара."""
+    if p0 is None or p1 is None:
+        return closest_pair(e0, e1)
+    c0, c1 = nearest_free(e0, p0), nearest_free(e1, p1)
+    if c0 is None or c1 is None:
+        return None
+    return c0, c1
+
+
+def describe_pick(el, point):
+    """Для підказки в рядку стану: що вже обрано — категорія й переріз найближчого до кліку конектора."""
+    try:
+        c = nearest_free(el, point) if point is not None else None
+        size = hvac_sizes.label(connector_size(c)) if c is not None else u''
+        return (u'{0} {1}'.format(category_name(el), size)).strip()
+    except Exception:
+        return category_name(el)
+
+
+def explain_no_free(e0, e1):
+    """Чому пару не знайдено: який елемент без вільних конекторів і що з його конекторами (у журнал і в діалог)."""
+    lines = []
+    for e in (e0, e1):
+        if not free_connectors(e):
+            conns = element_connectors(e)
+            hvac_log.log(TOOL, u'немає вільних конекторів: {0} id {1}; конектори: {2}'.format(
+                category_name(e), eid_int(e.Id), u'; '.join(connector_text(c) for c in conns) or u'немає'))
+            lines.append(u'«{0}» (id {1}): усього конекторів {2}, вільних 0'.format(
+                category_name(e), eid_int(e.Id), len(conns)))
+    return u'\n'.join(lines)
 
 
 # ---------- типи, система, рівень ----------
@@ -723,8 +813,13 @@ def main():
     made = 0
     while True:
         try:
-            e0 = pick_element(u'Перший елемент: повітровод, арматура, фасонна частина або обладнання ({0})'.format(tail))
-            e1 = pick_element(u'Другий елемент ({0})'.format(tail))
+            # Підказки йдуть у рядок стану Revit (це текст запиту PickObject): що робити зараз і що вже обрано.
+            pair_no = u'пара {0}: '.format(made + 1) if loop else u''
+            e0, p0 = pick_element(u'QuickFlexConnect · {0}1/2 — клацніть на першому елементі біля потрібного конектора '
+                                  u'({1})'.format(pair_no, tail))
+            first = describe_pick(e0, p0)
+            e1, p1 = pick_element(u'QuickFlexConnect · {0}2/2 — перший: {1}. Клацніть на другому елементі біля '
+                                  u'потрібного конектора ({2})'.format(pair_no, first, tail))
         except OperationCanceledException:
             hvac_log.log(TOOL, u'вибір скасовано (Esc)')
             break
@@ -735,9 +830,10 @@ def main():
             if loop:
                 continue
             break
-        pair = closest_pair(e0, e1)
+        pair = choose_pair(e0, p0, e1, p1)
         if pair is None:
-            forms.alert(u'На одному з елементів немає вільних конекторів.', title=u'QuickFlexConnect')
+            forms.alert(u'На одному з елементів немає вільних конекторів:\n{0}\n\nЖурнал: {1}'.format(
+                explain_no_free(e0, e1), hvac_log.log_path()), title=u'QuickFlexConnect')
             if loop:
                 continue
             break
