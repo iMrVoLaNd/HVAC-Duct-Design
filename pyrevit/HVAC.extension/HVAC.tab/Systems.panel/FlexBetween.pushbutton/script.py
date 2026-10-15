@@ -7,6 +7,8 @@ __doc__ = (u'Обираєте два елементи (повітровод, а�
            u'(за замовчуванням «Гибкий») і галочка «Цикл» (за замовчуванням вимкнено).')
 
 # Сумісно з IronPython 3.4 (pyRevit) і CPython: без f-рядків та сучасного синтаксису.
+import uuid
+
 from pyrevit import revit, DB, UI, forms, script
 from System.Collections.Generic import List
 from Autodesk.Revit.Exceptions import OperationCanceledException
@@ -92,6 +94,10 @@ def is_allowed_category(el):
 
 class DuctElementFilter(UI.Selection.ISelectionFilter):
     """Дозволяє вибрати лише повітроводи, арматуру, фасонні частини й обладнання з вільним вентиляційним конектором."""
+
+    # CPython-рушій pyRevit (pythonnet 3): клас, що реалізує .NET-інтерфейс, потребує __namespace__,
+    # причому щоразу нового (інакше «Duplicate type name» при повторному запуску). У IronPython це просто атрибут.
+    __namespace__ = 'HvacFlex_' + uuid.uuid4().hex
 
     def AllowElement(self, e):
         try:

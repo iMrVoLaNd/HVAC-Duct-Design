@@ -242,7 +242,7 @@ def run_button(world, answers=None, loop=False, path=None):
             if nxt is Cancelled:
                 raise Cancelled()
             el = nxt
-            world.log.append(('pick', otype, flt.AllowElement(el), prompt))
+            world.log.append(('pick', otype, flt.AllowElement(el), prompt, getattr(type(flt), '__namespace__', None)))
             return types.SimpleNamespace(ElementId=el.Id)
 
     UI = types.SimpleNamespace(Selection=types.SimpleNamespace(
@@ -428,6 +428,15 @@ class FlexButtonTests(unittest.TestCase):
         w.picks = [d1, d2]
         run_button(w)
         self.assertEqual(w.created[0].created_with['points'], [(10, 0, 0), (11, 0, 0)])
+
+    def test_filter_class_has_unique_namespace_for_cpython_engine(self):
+        spaces = []
+        for _ in range(2):                                   # два запуски кнопки = два створення класу
+            w = scenario()
+            w.picks = [w.a, w.b]
+            run_button(w)
+            spaces.append([l[4] for l in w.log if l[0] == 'pick'][0])
+        self.assertTrue(all(spaces) and spaces[0] != spaces[1], spaces)
 
     def test_selection_is_whole_element_not_a_point(self):
         w = scenario()
