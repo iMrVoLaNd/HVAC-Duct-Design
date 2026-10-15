@@ -8,10 +8,11 @@ __doc__ = (u'QuickFlexConnect: обираєте два елементи (пов�
            u'і галочка «Цикл» (за замовчуванням вимкнено).')
 
 # Сумісно з IronPython 3.4 (pyRevit) і CPython: без f-рядків та сучасного синтаксису.
-import uuid
-
 import os
 import sys
+import time
+
+_T0 = time.time()        # початок запуску скрипта: щоб у журналі було видно, скільки йде підготовка до першого вибору
 
 # Папка lib розширення (HVAC.extension/lib). Зазвичай pyRevit додає її сам; додаємо явно про всяк випадок.
 try:
@@ -30,7 +31,7 @@ except ImportError:
 TOOL = 'QuickFlexConnect'
 
 try:
-    from pyrevit import revit, DB, UI, forms, script
+    from pyrevit import revit, DB, UI, script
     from System.Collections.Generic import List
     from Autodesk.Revit.Exceptions import OperationCanceledException
 
@@ -41,9 +42,28 @@ except Exception:
     hvac_log.log_exception(TOOL, u'імпорт модулів')
     raise
 
+_T_MAIN = 0.0
+_T_IMPORTED = time.time()      # імпорти закінчено (для розбивки часу підготовки в журналі)
 doc = revit.doc
 uidoc = revit.uidoc
-output = script.get_output()
+
+
+class _LazyForms(object):
+    """pyrevit.forms тягне WPF і коштує десятки-сотні мс; на швидкому шляху (без жодного вікна) він не потрібен —
+    вантажимо його лише при першому зверненні."""
+
+    def __getattr__(self, name):
+        from pyrevit import forms as real_forms
+        return getattr(real_forms, name)
+
+
+forms = _LazyForms()
+
+
+def _unique_namespace(prefix):
+    """Унікальне __namespace__ для класів, що реалізують .NET-інтерфейс (потрібне CPython-рушію pyRevit). Без модуля
+    uuid: його імпорт у IronPython помітно повільний."""
+    return u'{0}{1:x}{2:x}'.format(prefix, int(time.time() * 1000000), int.from_bytes(os.urandom(6), 'big'))
 
 MIN_LEN_FT = 1.0 / 10.0 / 12.0       # Revit не будує MEP-криві коротші за 1/10 дюйма
 BEND_FACTOR = 0.3                    # «виліт» кривої від конектора (частка відстані) у запасному варіанті
@@ -89,18 +109,27 @@ def type_label(el):
 # ---------- конектори ----------
 
 def element_connectors(el):
-    """Усі конектори елемента: повітровод/гнучкий (ConnectorManager) або сімейство (MEPModel)."""
+    """Усі конектори елемента: повітровод (ConnectorManager) або сімейство (MEPModel). Тип визначаємо за класом, а не
+    через AttributeError — винятки в IronPython дорогі, а ця функція викликається при кожному русі курсора."""
     mgr = None
-    try:
+    curve_cls = getattr(DB, 'MEPCurve', None)
+    family_cls = getattr(DB, 'FamilyInstance', None)
+    if curve_cls is not None and isinstance(el, curve_cls):
         mgr = el.ConnectorManager
-    except AttributeError:
-        mgr = None
-    if mgr is None:
+    elif family_cls is not None and isinstance(el, family_cls):
+        mep = el.MEPModel
+        mgr = mep.ConnectorManager if mep is not None else None
+    else:                                   # невідомий клас (або заглушка): запасний шлях через винятки
         try:
-            mep = el.MEPModel
-            mgr = mep.ConnectorManager if mep is not None else None
+            mgr = el.ConnectorManager
         except AttributeError:
             mgr = None
+        if mgr is None:
+            try:
+                mep = el.MEPModel
+                mgr = mep.ConnectorManager if mep is not None else None
+            except AttributeError:
+                mgr = None
     return list(mgr.Connectors) if mgr is not None else []
 
 
@@ -116,7 +145,46 @@ def free_connectors(el):
     return [c for c in element_connectors(el) if is_free_hvac(c)]
 
 
+def hvac_connectors(el):
+    """Усі вентиляційні конектори елемента (вільні й зайняті)."""
+    result = []
+    for c in element_connectors(el):
+        try:
+            if c.Domain == DB.Domain.DomainHvac:
+                result.append(c)
+        except Exception:
+            pass
+    return result
+
+
+def connector_text(c):
+    """Короткий опис конектора для журналу: тип, домен, чи підключений, координати."""
+    try:
+        o = c.Origin
+        return u'{0}/{1}/{2}@({3:.2f}, {4:.2f}, {5:.2f})'.format(
+            c.ConnectorType, c.Domain, u'підключений' if c.IsConnected else u'вільний', o.X, o.Y, o.Z)
+    except Exception:
+        return u'?'
+
+
+_REJECTED = set()
+
+
+def note_rejected(e):
+    """Елемент дозволеної категорії без вентиляційних конекторів не вибирається: пишемо в журнал (раз на елемент)."""
+    try:
+        key = eid_int(e.Id)
+        if key in _REJECTED or len(_REJECTED) >= 30:
+            return
+        _REJECTED.add(key)
+        hvac_log.log(TOOL, u'елемент відхилено фільтром: {0} id {1}; конектори: {2}'.format(
+            category_name(e), key, u'; '.join(connector_text(c) for c in element_connectors(e)) or u'немає'))
+    except Exception:
+        pass
+
+
 _ALLOWED_CACHE = []
+_ALLOW_CACHE = {}        # id елемента → чи дозволений фільтром вибору
 
 
 def allowed_category_values():
@@ -139,15 +207,29 @@ def is_allowed_category(el):
 
 
 class DuctElementFilter(UI.Selection.ISelectionFilter):
-    """Дозволяє вибрати лише повітроводи, арматуру, фасонні частини й обладнання з вільним вентиляційним конектором."""
+    """Дозволяє вибрати лише повітроводи, арматуру, фасонні частини, обладнання й повітророзподільники, у яких є
+    вентиляційні конектори. Чи вільні вони, перевіряємо вже після кліку — щоб пояснити, а не мовчки не реагувати."""
 
     # CPython-рушій pyRevit (pythonnet 3): клас, що реалізує .NET-інтерфейс, потребує __namespace__,
     # причому щоразу нового (інакше «Duplicate type name» при повторному запуску). У IronPython це просто атрибут.
-    __namespace__ = 'HvacFlex_' + uuid.uuid4().hex
+    __namespace__ = _unique_namespace('HvacFlex_')
 
     def AllowElement(self, e):
+        # Викликається Revit-ом при кожному русі курсора над елементом: результат кешуємо за id (він не залежить від
+        # того, вільні конектори чи ні, тому за час запуску не застаріває).
         try:
-            return is_allowed_category(e) and len(free_connectors(e)) > 0
+            key = eid_int(e.Id)
+            cached = _ALLOW_CACHE.get(key)
+            if cached is not None:
+                return cached
+            allowed = False
+            if is_allowed_category(e):
+                if hvac_connectors(e):
+                    allowed = True
+                else:
+                    note_rejected(e)
+            _ALLOW_CACHE[key] = allowed
+            return allowed
         except Exception:
             return False
 
@@ -158,7 +240,7 @@ class DuctElementFilter(UI.Selection.ISelectionFilter):
 class FlexSampleFilter(UI.Selection.ISelectionFilter):
     """Дозволяє клацнути лише на гнучкий повітровод — з нього беремо тип."""
 
-    __namespace__ = 'HvacFlexSample_' + uuid.uuid4().hex          # див. примітку в DuctElementFilter
+    __namespace__ = _unique_namespace('HvacFlexSample_')          # див. примітку в DuctElementFilter
 
     def AllowElement(self, e):
         try:
@@ -175,7 +257,7 @@ def pick_sample_type(by_name):
     """Клік на гнучкий повітровод у моделі → його тип (елемент з by_name). Esc — None (тоді питаємо зі списку)."""
     try:
         ref = uidoc.Selection.PickObject(UI.Selection.ObjectType.Element, FlexSampleFilter(),
-                                         u'Клацніть на гнучкий повітровод, з якого взяти тип (Esc — обрати зі списку)')
+                                         u'QuickFlexConnect · 3/3 — клацніть на гнучкому повітроводі, з якого взяти тип (Esc — обрати зі списку)')
     except OperationCanceledException:
         hvac_log.log(TOOL, u'зразок типу не вибрано (Esc) — вибір зі списку')
         return None
@@ -190,9 +272,28 @@ def pick_sample_type(by_name):
 
 
 def pick_element(prompt):
-    """Вибір цілого елемента (клік будь-де на ньому)."""
+    """Вибір цілого елемента (без точки на ньому — підсвічується весь елемент). Повертає (елемент, точка кліку):
+    точку Revit зазвичай віддає в Reference.GlobalPoint і для вибору елемента; якщо ні — None, і конектори
+    підбираються як найближча пара."""
     ref = uidoc.Selection.PickObject(UI.Selection.ObjectType.Element, DuctElementFilter(), prompt)
-    return doc.GetElement(ref.ElementId)
+    point = None
+    try:
+        point = ref.GlobalPoint
+    except Exception:
+        point = None
+    if point is None:
+        hvac_log.log(TOOL, u'точка кліку недоступна — конектор підбиратиметься як найближча пара')
+    else:
+        hvac_log.log(TOOL, u'точка кліку: ({0:.2f}, {1:.2f}, {2:.2f})'.format(point.X, point.Y, point.Z))
+    return doc.GetElement(ref.ElementId), point
+
+
+def nearest_free(el, point):
+    """Вільний конектор елемента, найближчий до точки кліку; None — вільних немає."""
+    free = free_connectors(el)
+    if not free:
+        return None
+    return min(free, key=lambda c: c.Origin.DistanceTo(point))
 
 
 def closest_pair(el0, el1):
@@ -203,23 +304,65 @@ def closest_pair(el0, el1):
     return min(((a, b) for a in free0 for b in free1), key=lambda p: p[0].Origin.DistanceTo(p[1].Origin))
 
 
+def choose_pair(e0, p0, e1, p1):
+    """Пара конекторів: кожен — найближчий до місця кліку на своєму елементі. Немає точок кліку — найближча пара."""
+    if p0 is None or p1 is None:
+        return closest_pair(e0, e1)
+    c0, c1 = nearest_free(e0, p0), nearest_free(e1, p1)
+    if c0 is None or c1 is None:
+        return None
+    return c0, c1
+
+
+def describe_pick(el, point):
+    """Для підказки в рядку стану: що вже обрано — категорія й переріз найближчого до кліку конектора."""
+    try:
+        c = nearest_free(el, point) if point is not None else None
+        size = hvac_sizes.label(connector_size(c)) if c is not None else u''
+        return (u'{0} {1}'.format(category_name(el), size)).strip()
+    except Exception:
+        return category_name(el)
+
+
+def explain_no_free(e0, e1):
+    """Чому пару не знайдено: який елемент без вільних конекторів і що з його конекторами (у журнал і в діалог)."""
+    lines = []
+    for e in (e0, e1):
+        if not free_connectors(e):
+            conns = element_connectors(e)
+            hvac_log.log(TOOL, u'немає вільних конекторів: {0} id {1}; конектори: {2}'.format(
+                category_name(e), eid_int(e.Id), u'; '.join(connector_text(c) for c in conns) or u'немає'))
+            lines.append(u'«{0}» (id {1}): усього конекторів {2}, вільних 0'.format(
+                category_name(e), eid_int(e.Id), len(conns)))
+    return u'\n'.join(lines)
+
+
 # ---------- типи, система, рівень ----------
 
 def flex_types():
     return sorted(DB.FilteredElementCollector(doc).OfClass(DB.Mechanical.FlexDuctType), key=type_name)
 
 
+_CFG = []
+
+
+def get_cfg():
+    """Об'єкт конфігурації pyRevit — читаємо файл налаштувань один раз за запуск, а не при кожному зверненні."""
+    if not _CFG:
+        _CFG.append(script.get_config(CONFIG_SECTION))
+    return _CFG[0]
+
+
 def load_last(key):
     try:
-        return script.get_config(CONFIG_SECTION).get_option(key, u'')
+        return get_cfg().get_option(key, u'')
     except Exception:
         return u''
 
 
 def save_last(key, value):
     try:
-        cfg = script.get_config(CONFIG_SECTION)
-        cfg.set_option(key, value)
+        get_cfg().set_option(key, value)
         script.save_config()
     except Exception:
         pass
@@ -437,7 +580,7 @@ def param_text(p):
         return u''
 
 
-def set_param_text(p, value, hint=None):
+def set_param_text(p, value, hint=None, trust=False):
     """Записати значення з тексту. Повертає (вдалося, число-варіант або None); число — для параметрів-списків."""
     st = p.StorageType
     if st == DB.StorageType.String:
@@ -446,7 +589,7 @@ def set_param_text(p, value, hint=None):
         try:
             return bool(p.Set(int(value))), None
         except ValueError:
-            number = hvac_revit.set_enum_by_text(p, value, refresh=doc.Regenerate, hint=hint)
+            number = hvac_revit.set_enum_by_text(p, value, refresh=doc.Regenerate, hint=hint, trust_hint=trust)
             return number is not None, number
     if st == DB.StorageType.Double:
         return bool(p.SetValueString(value)), None
@@ -488,8 +631,10 @@ def apply_config_param(flex, state):
             if before.strip().lower() == value.lower():
                 hvac_log.log(TOOL, u'«{0}» ({1}) вже = «{2}»'.format(name, label, value))
                 return
-            ok, number = set_param_text(p, value, state.get('number'))
+            hint = state.get('number')
+            ok, number = set_param_text(p, value, hint, trust=hint is not None)
             if number is not None:
+                state['trusted'] = hint is not None and number == hint           # записали за довіреним числом
                 state['number'] = state['learned'] = number
             if ok:
                 hvac_log.log(TOOL, u'«{0}» ({1}): «{2}» → «{3}»'.format(name, label, before, value))
@@ -676,6 +821,31 @@ def choose_options(s0, s1, entries, state):
     return by_name[name], size
 
 
+def verify_config_param(flex_id, state):
+    """Після коміту (модель уже перерахована Revit-ом) перевіряємо значення, записане за запам'ятованим числом, —
+    дешеве читання без жодного перерахунку. Не збіглось (число застаріло) — одноразово виправляємо перебором."""
+    try:
+        flex = doc.GetElement(flex_id)
+        for el in (flex, doc.GetElement(flex.GetTypeId())):
+            p = find_config_param(el)
+            if p is not None:
+                if param_text(p).strip().lower() == state['value'].lower():
+                    return
+                break
+        hvac_log.log(TOOL, u'запам\'ятоване число {0} дало інше значення — визначаю заново'.format(state.get('number')))
+        state['number'] = None
+        t = DB.Transaction(doc, u'QuickFlexConnect: виправлення параметра')
+        t.Start()
+        try:
+            apply_config_param(doc.GetElement(flex_id), state)
+            t.Commit()
+        except Exception:
+            t.RollBack()
+            raise
+    except Exception:
+        hvac_log.log_exception(TOOL, u'перевірка параметра після побудови')
+
+
 def build_one(c0, c1, flex_type, size, system_state):
     system_id = system_type_id_from(c0) or system_type_id_from(c1) or system_state.get('id')
     if system_id is None:
@@ -687,28 +857,35 @@ def build_one(c0, c1, flex_type, size, system_state):
     hvac_log.log(TOOL, u'побудова: тип {0}, розмір {1}, система {2}, рівень {3}, довжина {4:.3f} ft'.format(
         type_name(flex_type), hvac_sizes.label(size), eid_int(system_id), eid_int(level_id),
         c0.Origin.DistanceTo(c1.Origin)))
+    started = time.time()
     t = DB.Transaction(doc, u'QuickFlexConnect: гнучкий повітровод між конекторами')
     t.Start()
     try:
         flex = create_flex(c0, c1, flex_type.Id, system_id, level_id)
         apply_size(flex, size)
+        system_state['trusted'] = False
         apply_config_param(flex, system_state)
         connect_ends(flex, c0, c1)
         t.Commit()
-        hvac_log.log(TOOL, u'створено, id {0}'.format(eid_int(flex.Id)))
+        hvac_log.log(TOOL, u'створено, id {0}, {1} мс'.format(eid_int(flex.Id), hvac_log.elapsed_ms(started)))
     except Exception:
         t.RollBack()
         hvac_log.log_exception(TOOL, u'побудова (транзакцію відкотено)')
         raise
+    if system_state.get('trusted'):
+        verify_config_param(flex.Id, system_state)
     return flex
 
 
 def main():
+    global _T_MAIN
+    _T_MAIN = time.time()
     types = flex_types()
     if not types:
         forms.alert(u'У проєкті немає типів гнучких повітроводів.', title=u'QuickFlexConnect', exitscript=True)
     entries = [(type_name(t), type_shape(t), t) for t in types]
-    cfg = script.get_config(CONFIG_SECTION)
+    cfg = get_cfg()
+    ctx = hvac_revit.app_context(doc)
     config_value = hvac_flex_settings.get_config_value(cfg)
     # Режим циклу — галочка у вікні налаштувань (Shift+клік), за замовчуванням вимкнено.
     loop = hvac_flex_settings.is_loop(cfg)
@@ -716,15 +893,22 @@ def main():
         len(types), u', '.join(u'{0}[{1}]'.format(n, sh) for n, sh, _t in entries), config_value, loop,
         hvac_flex_settings.is_type_from_model(cfg), hvac_log.log_path()))
     tail = u'Esc — завершити' if loop else u'Esc — скасувати'
+    hvac_log.log(TOOL, u'підготовка до першого вибору: {0} мс (імпорти {1}, типи й налаштування {2})'.format(
+        hvac_log.elapsed_ms(_T0), int((_T_IMPORTED - _T0) * 1000), hvac_log.elapsed_ms(_T_MAIN)))
     system_state = {'id': None, 'type': None, 'from_model': hvac_flex_settings.is_type_from_model(cfg),
                     'value': config_value,
-                    'number': hvac_flex_settings.get_config_number(cfg), 'learned': None,
+                    'number': hvac_flex_settings.get_config_number(cfg, ctx), 'learned': None, 'trusted': False,
                     'warnings': [], 'dumped': False}
     made = 0
     while True:
         try:
-            e0 = pick_element(u'Перший елемент: повітровод, арматура, фасонна частина або обладнання ({0})'.format(tail))
-            e1 = pick_element(u'Другий елемент ({0})'.format(tail))
+            # Підказки йдуть у рядок стану Revit (це текст запиту PickObject): що робити зараз і що вже обрано.
+            pair_no = u'пара {0}: '.format(made + 1) if loop else u''
+            e0, p0 = pick_element(u'QuickFlexConnect · {0}1/2 — клацніть на першому елементі, конектор буде найближчий '
+                                  u'до кліку ({1})'.format(pair_no, tail))
+            first = describe_pick(e0, p0)
+            e1, p1 = pick_element(u'QuickFlexConnect · {0}2/2 — перший: {1}. Клацніть на другому елементі, конектор буде '
+                                  u'найближчий до кліку ({2})'.format(pair_no, first, tail))
         except OperationCanceledException:
             hvac_log.log(TOOL, u'вибір скасовано (Esc)')
             break
@@ -735,9 +919,10 @@ def main():
             if loop:
                 continue
             break
-        pair = closest_pair(e0, e1)
+        pair = choose_pair(e0, p0, e1, p1)
         if pair is None:
-            forms.alert(u'На одному з елементів немає вільних конекторів.', title=u'QuickFlexConnect')
+            forms.alert(u'На одному з елементів немає вільних конекторів:\n{0}\n\nЖурнал: {1}'.format(
+                explain_no_free(e0, e1), hvac_log.log_path()), title=u'QuickFlexConnect')
             if loop:
                 continue
             break
@@ -759,9 +944,9 @@ def main():
         if not loop:
             break
     for w in sorted(set(system_state['warnings'])):
-        output.print_md(u'* **Увага:** {0}'.format(w))
-    if system_state['learned'] is not None and system_state['learned'] != hvac_flex_settings.get_config_number(cfg):
-        hvac_flex_settings.set_config_number(cfg, system_state['learned'])      # наступного разу — без перебору
+        script.get_output().print_md(u'* **Увага:** {0}'.format(w))      # вікно виводу — лише коли є що показати
+    if system_state['learned'] is not None and system_state['learned'] != hvac_flex_settings.get_config_number(cfg, ctx):
+        hvac_flex_settings.set_config_number(cfg, system_state['learned'], ctx)      # наступного разу — без перебору
         script.save_config()
     hvac_log.log(TOOL, u'створено гнучких повітроводів: {0}'.format(made))      # вікно виводу на успіх не відкриваємо
 

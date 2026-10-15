@@ -63,23 +63,33 @@ def get_config_value(cfg):
 
 
 CONFIG_NUMBER_KEY = 'config_value_num'
+CONFIG_CTX_KEY = 'config_value_ctx'
 
 
-def get_config_number(cfg):
-    """Число, що відповідає збереженому значенню-тексту (щоб не перебирати варіанти щоразу); None — невідомо."""
+def get_config_number(cfg, ctx=None):
+    """Число, що відповідає збереженому значенню-тексту (щоб не перебирати варіанти щоразу); None — невідомо.
+
+    ctx — «відбиток» середовища (версія Revit і мова): число діє лише в тому середовищі, де його дізнались, інакше
+    None і кнопка знову визначить його перебором. ctx=None — без перевірки."""
     try:
         raw = cfg.get_option(CONFIG_NUMBER_KEY, '')
-        return int(str(raw).strip()) if str(raw).strip() != '' else None
+        if str(raw).strip() == '':
+            return None
+        if ctx is not None and str(cfg.get_option(CONFIG_CTX_KEY, '')) != ctx:
+            return None
+        return int(str(raw).strip())
     except Exception:
         return None
 
 
-def set_config_value(cfg, value, number=None):
+def set_config_value(cfg, value, number=None, ctx=None):
     """Зберегти значення (текст) і, якщо відоме, відповідне число; без числа старе число стирається."""
     cfg.set_option(CONFIG_VALUE_KEY, value.strip())
     cfg.set_option(CONFIG_NUMBER_KEY, '' if number is None else str(int(number)))
+    cfg.set_option(CONFIG_CTX_KEY, '' if ctx is None else ctx)
 
 
-def set_config_number(cfg, number):
+def set_config_number(cfg, number, ctx=None):
     """Запам'ятати число для вже збереженого значення (кнопка сама дізналась його при першому запису)."""
     cfg.set_option(CONFIG_NUMBER_KEY, str(int(number)))
+    cfg.set_option(CONFIG_CTX_KEY, '' if ctx is None else ctx)

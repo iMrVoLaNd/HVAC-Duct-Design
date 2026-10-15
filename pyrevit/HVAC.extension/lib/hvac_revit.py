@@ -70,12 +70,28 @@ def enum_options(p, limit=32, refresh=None, max_misses=4):
     return found
 
 
-def set_enum_by_text(p, text, refresh=None, hint=None):
+def app_context(doc):
+    """«Відбиток» середовища: версія Revit і мова інтерфейсу. Число варіанта параметра-списку дійсне лише в ньому."""
+    try:
+        app = doc.Application
+        return u'{0}|{1}'.format(app.VersionNumber, app.Language)
+    except Exception:
+        return u''
+
+
+def set_enum_by_text(p, text, refresh=None, hint=None, trust_hint=False):
     """Записати в параметр-список варіант за його текстом («Гибкий»). Повертає число варіанта або None.
 
     hint — число, яке вже відоме з минулого разу: пробуємо його першим (один запис і одна перевірка тексту замість
-    перебору десятків значень з перерахунком моделі); не підійшло — перебираємо як завжди."""
+    перебору десятків значень з перерахунком моделі); не підійшло — перебираємо як завжди.
+    trust_hint — довіряти hint без перевірки: просто записати число (без перерахунку моделі); перевірити результат
+    викликач може після транзакції."""
     wanted = text.strip().lower()
+    if hint is not None and trust_hint:
+        try:
+            return hint if p.Set(hint) else None
+        except Exception:
+            return None
     if hint is not None:
         try:
             if p.Set(hint):

@@ -23,7 +23,7 @@ except ImportError:
 TOOL = 'QuickFlexConnect_config'
 
 try:
-    from pyrevit import revit, DB, forms, script
+    from pyrevit import revit, DB, script
 
     import hvac_flex_settings
     import hvac_revit
@@ -32,6 +32,17 @@ except Exception:
     raise
 
 doc = revit.doc
+
+
+class _LazyForms(object):
+    """pyrevit.forms вантажимо лише при першому зверненні (див. script.py)."""
+
+    def __getattr__(self, name):
+        from pyrevit import forms as real_forms
+        return getattr(real_forms, name)
+
+
+forms = _LazyForms()
 CONFIG_SECTION = hvac_flex_settings.SECTION
 TITLE = u'QuickFlexConnect — налаштування'
 NO_CHANGE = u'(не змінювати параметр)'      # пункт списку: значення порожнє — параметр не чіпати
@@ -162,7 +173,7 @@ def main():
         hvac_log.log(TOOL, u'налаштування не змінено')
         script.exit()
     number = dict((text, num) for num, text in pairs).get(result[0])      # число варіанта — щоб кнопка не перебирала його щоразу
-    hvac_flex_settings.set_config_value(cfg, result[0], number)
+    hvac_flex_settings.set_config_value(cfg, result[0], number, hvac_revit.app_context(doc))
     hvac_flex_settings.set_loop(cfg, result[1])
     hvac_flex_settings.set_type_from_model(cfg, result[2])
     script.save_config()
