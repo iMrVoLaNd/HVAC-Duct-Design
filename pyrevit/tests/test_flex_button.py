@@ -1166,7 +1166,7 @@ class FlexButtonTests(unittest.TestCase):
         w = self._two_pairs()
         run_button(w, loop=True)                          # 4 вибори = 4 виклики AllowElement
         self.assertEqual(len([l for l in w.log if l[0] == 'pick']), 4)
-        self.assertLessEqual(w.category_reads, 8)         # лише один прохід по 4 категоріях (hasattr + getattr)
+        self.assertLessEqual(w.category_reads, 10)        # лише один прохід по 5 категоріях (hasattr + getattr)
 
     def test_success_does_not_open_output_window(self):
         w = scenario()
@@ -1508,8 +1508,9 @@ class FlexButtonTests(unittest.TestCase):
         self.assertEqual([p[1] for p in picks], ['element', 'element'])
 
     def test_selection_filter_allows_only_duct_categories(self):
-        allowed = ('OST_DuctCurves', 'OST_DuctAccessory', 'OST_DuctFitting', 'OST_MechanicalEquipment')
-        denied = ('OST_FlexDuctCurves', 'OST_PipeCurves', 'OST_DuctTerminal')
+        allowed = ('OST_DuctCurves', 'OST_DuctAccessory', 'OST_DuctFitting', 'OST_MechanicalEquipment',
+                   'OST_DuctTerminal')
+        denied = ('OST_FlexDuctCurves', 'OST_PipeCurves')
         result = {}
         for name in allowed + denied:
             w1 = scenario()
@@ -1519,6 +1520,17 @@ class FlexButtonTests(unittest.TestCase):
             run_button(w1)
             result[name] = [l for l in w1.log if l[0] == 'pick'][0][2]
         self.assertEqual(result, dict([(n, True) for n in allowed] + [(n, False) for n in denied]))
+
+    def test_air_terminal_can_be_connected(self):
+        w = scenario()
+        terminal = FakeInstance(70, [Connector(None, XYZ(3, 0, 1), XYZ(-1, 0, 0), radius=0.2)], level=EId(100),
+                                cat='OST_DuctTerminal')
+        w.elements[70] = terminal
+        w.picks = [w.a, terminal]
+        run_button(w)
+        self.assertEqual(len(w.created), 1)
+        self.assertEqual(w.created[0].created_with['points'][1], (3, 0, 1))
+        self.assertTrue([l for l in w.log if l[0] == 'pick'][1][2])           # фільтр його дозволяє
 
     def test_filter_rejects_element_without_free_connectors(self):
         w = scenario()

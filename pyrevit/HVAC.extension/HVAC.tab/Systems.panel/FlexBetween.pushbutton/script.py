@@ -56,7 +56,7 @@ ALLOWED_CATEGORIES = [
     u'OST_DuctAccessory',         # арматура повітроводів
     u'OST_DuctFitting',           # фасонні частини повітроводів
     u'OST_MechanicalEquipment',   # обладнання
-    # u'OST_DuctTerminal',        # повітророзподільники — розкоментуйте, якщо потрібні
+    u'OST_DuctTerminal',          # повітророзподільники
 ]
 
 
