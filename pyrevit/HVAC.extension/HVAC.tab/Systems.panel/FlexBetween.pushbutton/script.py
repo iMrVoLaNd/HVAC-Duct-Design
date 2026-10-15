@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 __title__ = u'Гнучкий\nміж конекторами'
 __author__ = u'HVAC-Duct-Design'
-__doc__ = (u'Обираєте два вільні конектори (клік на елементі біля конектора) — між ними будується гнучкий повітровод '
+__doc__ = (u'Обираєте два елементи (повітровод, арматуру, фасонну частину, обладнання) — між їхніми найближчими вільними '
+           u'конекторами будується гнучкий повітровод '
            u'типу з налаштувань, кінці з\'єднуються з конекторами. Shift+клік — вікно налаштувань: тип '
            u'(за замовчуванням «Гибкий») і галочка «Цикл» (за замовчуванням вимкнено).')
 
@@ -20,6 +21,15 @@ MIN_LEN_FT = 1.0 / 10.0 / 12.0       # Revit не будує MEP-криві ко
 BEND_FACTOR = 0.3                    # «виліт» кривої від конектора (частка відстані) у запасному варіанті
 BEND_MIN_FT = 0.3
 CONFIG_SECTION = 'flex_between'
+
+# Які елементи можна вибирати (назви BuiltInCategory). Потрібне додайте, зайве приберіть.
+ALLOWED_CATEGORIES = [
+    u'OST_DuctCurves',            # повітроводи
+    u'OST_DuctAccessory',         # арматура повітроводів
+    u'OST_DuctFitting',           # фасонні частини повітроводів
+    u'OST_MechanicalEquipment',   # обладнання
+    # u'OST_DuctTerminal',        # повітророзподільники — розкоментуйте, якщо потрібні
+]
 
 
 def eid_int(eid):
@@ -64,12 +74,28 @@ def free_connectors(el):
     return [c for c in element_connectors(el) if is_free_hvac(c)]
 
 
-class FreeHvacConnectorFilter(UI.Selection.ISelectionFilter):
-    """Дозволяє клікати лише на елементи, де є вільний вентиляційний конектор."""
+def allowed_category_values():
+    values = set()
+    for name in ALLOWED_CATEGORIES:
+        if hasattr(DB.BuiltInCategory, name):
+            values.add(int(getattr(DB.BuiltInCategory, name)))
+    return values
+
+
+def is_allowed_category(el):
+    try:
+        cat = el.Category
+        return cat is not None and eid_int(cat.Id) in allowed_category_values()
+    except Exception:
+        return False
+
+
+class DuctElementFilter(UI.Selection.ISelectionFilter):
+    """Дозволяє вибрати лише повітроводи, арматуру, фасонні частини й обладнання з вільним вентиляційним конектором."""
 
     def AllowElement(self, e):
         try:
-            return len(free_connectors(e)) > 0
+            return is_allowed_category(e) and len(free_connectors(e)) > 0
         except Exception:
             return False
 
@@ -77,15 +103,18 @@ class FreeHvacConnectorFilter(UI.Selection.ISelectionFilter):
         return True
 
 
-def pick_connector(prompt):
-    """Клік на елементі → найближчий до точки кліку вільний конектор."""
-    ref = uidoc.Selection.PickObject(UI.Selection.ObjectType.PointOnElement, FreeHvacConnectorFilter(), prompt)
-    el = doc.GetElement(ref.ElementId)
-    pt = ref.GlobalPoint
-    free = free_connectors(el)
-    if not free:
+def pick_element(prompt):
+    """Вибір цілого елемента (клік будь-де на ньому)."""
+    ref = uidoc.Selection.PickObject(UI.Selection.ObjectType.Element, DuctElementFilter(), prompt)
+    return doc.GetElement(ref.ElementId)
+
+
+def closest_pair(el0, el1):
+    """Пара вільних конекторів (з першого й другого елемента) з найменшою відстанню між ними."""
+    free0, free1 = free_connectors(el0), free_connectors(el1)
+    if not free0 or not free1:
         return None
-    return min(free, key=lambda c: c.Origin.DistanceTo(pt))
+    return min(((a, b) for a in free0 for b in free1), key=lambda p: p[0].Origin.DistanceTo(p[1].Origin))
 
 
 # ---------- типи, система, рівень ----------
@@ -253,27 +282,23 @@ def main():
     made = 0
     while True:
         try:
-            c0 = pick_connector(u'Перший конектор: клацніть на елементі біля вільного конектора ({0})'.format(tail))
-            if c0 is None:
-                forms.alert(u'На цьому елементі немає вільних конекторів.', title=u'Гнучкий повітровод')
-                if loop:
-                    continue
-                break
-            c1 = pick_connector(u'Другий конектор: клацніть на елементі біля вільного конектора ({0})'.format(tail))
-            if c1 is None:
-                forms.alert(u'На цьому елементі немає вільних конекторів.', title=u'Гнучкий повітровод')
-                if loop:
-                    continue
-                break
+            e0 = pick_element(u'Перший елемент: повітровод, арматура, фасонна частина або обладнання ({0})'.format(tail))
+            e1 = pick_element(u'Другий елемент ({0})'.format(tail))
         except OperationCanceledException:
             break
-        if eid_int(c0.Owner.Id) == eid_int(c1.Owner.Id) and c0.Id == c1.Id:
-            forms.alert(u'Це той самий конектор. Оберіть два різні.', title=u'Гнучкий повітровод')
+        if eid_int(e0.Id) == eid_int(e1.Id):
+            forms.alert(u'Це той самий елемент. Оберіть два різні.', title=u'Гнучкий повітровод')
+            if loop:
+                continue
+            break
+        pair = closest_pair(e0, e1)
+        if pair is None:
+            forms.alert(u'На одному з елементів немає вільних конекторів.', title=u'Гнучкий повітровод')
             if loop:
                 continue
             break
         try:
-            build_one(c0, c1, flex_type, system_state)
+            build_one(pair[0], pair[1], flex_type, system_state)
             made += 1
         except Exception as ex:
             forms.alert(u'Не вдалося побудувати гнучкий повітровод:\n{0}'.format(ex), title=u'Гнучкий повітровод')

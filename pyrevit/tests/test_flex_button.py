@@ -3,7 +3,7 @@
 
 Запуск з кореня репозиторію:   python3 -m unittest discover -s pyrevit/tests -v
 Заглушки повторюють лише ті виклики API, що використовує скрипт; це не заміна перевірці в Revit 2026,
-але ловить помилки в логіці (вибір конектора, система, дотичні, з'єднання, цикл, скасування).
+але ловить помилки в логіці (вибір елементів і конекторів, система, дотичні, з'єднання, цикл, скасування).
 """
 import io
 import math
@@ -89,8 +89,18 @@ class ConnSet(list):
     pass
 
 
+CATS = {'OST_DuctCurves': -2008000, 'OST_DuctAccessory': -2008016, 'OST_DuctFitting': -2008010,
+        'OST_MechanicalEquipment': -2001140, 'OST_DuctTerminal': -2008013, 'OST_FlexDuctCurves': -2008020,
+        'OST_PipeCurves': -2008044}
+
+
+def category(name):
+    return types.SimpleNamespace(Id=EId(CATS[name]))
+
+
 class FakeDuct(object):          # має ConnectorManager (як Duct/FlexDuct)
-    def __init__(self, ident, conns=(), level=None):
+    def __init__(self, ident, conns=(), level=None, cat='OST_DuctCurves'):
+        self.Category = category(cat)
         self.Id = EId(ident)
         self.LevelId = level if level is not None else EId(-1)
         self.ConnectorManager = types.SimpleNamespace(Connectors=ConnSet())
@@ -100,7 +110,8 @@ class FakeDuct(object):          # має ConnectorManager (як Duct/FlexDuct)
 
 
 class FakeInstance(object):      # сімейство: конектори через MEPModel
-    def __init__(self, ident, conns=(), level=None):
+    def __init__(self, ident, conns=(), level=None, cat='OST_DuctAccessory'):
+        self.Category = category(cat)
         self.Id = EId(ident)
         self.LevelId = level if level is not None else EId(-1)
         self.MEPModel = types.SimpleNamespace(ConnectorManager=types.SimpleNamespace(Connectors=ConnSet()))
@@ -145,7 +156,7 @@ class World(object):
         self.system_types = [types.SimpleNamespace(Name='Supply Air', Id=EId(10)), types.SimpleNamespace(Name='Return Air', Id=EId(11))]
         self.levels = [types.SimpleNamespace(Name='L1', Id=EId(100), Elevation=0.0), types.SimpleNamespace(Name='L2', Id=EId(101), Elevation=10.0)]
         self.created, self.log, self.tangent_api, self.next_id = [], [], tangent_api, 900
-        self.picks = []          # сценарій кліків: (element, point) або Cancelled
+        self.picks = []          # сценарій вибору: елемент або Cancelled
         self.alerts, self.answers = [], {}
         self.tx = []
 
@@ -154,6 +165,7 @@ def run_button(world, answers=None, loop=False, path=None):
     DB = types.SimpleNamespace()
     DB.ElementId = EId
     DB.XYZ = XYZ
+    DB.BuiltInCategory = types.SimpleNamespace(**CATS)
     DB.Domain, DB.ConnectorType = Domain, CType
     DB.ConnectorProfileType = types.SimpleNamespace(Round='round', Rectangular='rect')
     DB.BuiltInParameter = types.SimpleNamespace(RBS_CURVE_DIAMETER_PARAM='diam', RBS_CURVE_WIDTH_PARAM='w', RBS_CURVE_HEIGHT_PARAM='h')
@@ -229,12 +241,12 @@ def run_button(world, answers=None, loop=False, path=None):
             nxt = world.picks.pop(0)
             if nxt is Cancelled:
                 raise Cancelled()
-            el, pt = nxt
-            assert flt.AllowElement(el) or True
-            return types.SimpleNamespace(ElementId=el.Id, GlobalPoint=pt)
+            el = nxt
+            world.log.append(('pick', otype, flt.AllowElement(el), prompt))
+            return types.SimpleNamespace(ElementId=el.Id)
 
     UI = types.SimpleNamespace(Selection=types.SimpleNamespace(
-        ISelectionFilter=object, ObjectType=types.SimpleNamespace(PointOnElement='pt')))
+        ISelectionFilter=object, ObjectType=types.SimpleNamespace(Element='element', PointOnElement='pt')))
     uidoc = types.SimpleNamespace(Selection=Selection())
 
     answers = answers or {}
@@ -335,7 +347,7 @@ def scenario(tangent_api=True):
 class FlexButtonTests(unittest.TestCase):
     def test_builds_flex_between_two_connectors_with_tangents(self):
         w = scenario()
-        w.picks = [(w.a, XYZ(0, 0, 0.1)), (w.b, XYZ(3, 0, 1.1)), Cancelled]
+        w.picks = [w.a, w.b, Cancelled]
         run_button(w)
         self.assertEqual(len(w.created), 1)
         f = w.created[0]
@@ -346,7 +358,7 @@ class FlexButtonTests(unittest.TestCase):
 
     def test_type_system_and_level(self):
         w = scenario()
-        w.picks = [(w.a, XYZ(0, 0, 0)), (w.b, XYZ(3, 0, 1)), Cancelled]
+        w.picks = [w.a, w.b, Cancelled]
         run_button(w, {u'Тип гнучкого': 'Flex Alu'})
         f = w.created[0].created_with
         self.assertEqual((f['type'], f['system'], f['level']), (2, 10, 100))   # система — з MEPSystem першого конектора
@@ -354,13 +366,13 @@ class FlexButtonTests(unittest.TestCase):
     def test_picks_nearest_free_connector_and_ignores_connected(self):
         w = scenario()
         # клік біля зайнятого конектора (9,9,9) має дати єдиний вільний конектор елемента b
-        w.picks = [(w.a, XYZ(0, 0, 0)), (w.b, XYZ(9, 9, 9)), Cancelled]
+        w.picks = [w.a, w.b, Cancelled]
         run_button(w)
         self.assertEqual(w.created[0].created_with['points'][1], (3, 0, 1))
 
     def test_flex_ends_are_connected_to_both_connectors(self):
         w = scenario()
-        w.picks = [(w.a, XYZ(0, 0, 0)), (w.b, XYZ(3, 0, 1)), Cancelled]
+        w.picks = [w.a, w.b, Cancelled]
         run_button(w)
         f = w.created[0]
         ends = list(f.ConnectorManager.Connectors)
@@ -371,13 +383,13 @@ class FlexButtonTests(unittest.TestCase):
 
     def test_size_is_copied_from_first_connector(self):
         w = scenario()
-        w.picks = [(w.a, XYZ(0, 0, 0)), (w.b, XYZ(3, 0, 1)), Cancelled]
+        w.picks = [w.a, w.b, Cancelled]
         run_button(w)
         self.assertAlmostEqual(w.created[0].params['diam'].value, 0.4)        # радіус 0.2 → діаметр 0.4
 
     def test_fallback_for_old_api_without_tangents(self):
         w = scenario(tangent_api=False)
-        w.picks = [(w.a, XYZ(0, 0, 0)), (w.b, XYZ(3, 0, 1)), Cancelled]
+        w.picks = [w.a, w.b, Cancelled]
         run_button(w)
         cw = w.created[0].created_with
         self.assertIsNone(cw['tangents'])
@@ -393,20 +405,63 @@ class FlexButtonTests(unittest.TestCase):
         c = FakeInstance(3, [Connector(None, XYZ(0, 5, 0), XYZ(0, 0, 1))], level=EId(100))
         d = FakeDuct(4, [Connector(None, XYZ(3, 5, 1), XYZ(-1, 0, 0))], level=EId(100))
         w.elements.update({3: c, 4: d})
-        w.picks = [(w.a, XYZ(0, 0, 0)), (w.b, XYZ(3, 0, 1)), (c, XYZ(0, 5, 0)), (d, XYZ(3, 5, 1)), Cancelled]
+        w.picks = [w.a, w.b, c, d, Cancelled]
         run_button(w, loop=True)
         self.assertEqual(len(w.created), 2)
         self.assertEqual([f.created_with['points'][0] for f in w.created], [(0, 0, 0), (0, 5, 0)])
         self.assertEqual(w.tx, ['start', 'commit', 'start', 'commit'])
 
-    def test_nearest_of_several_free_connectors_is_chosen(self):
+    def test_closest_pair_of_free_connectors_is_chosen(self):
         w = scenario()
         two_ends = FakeDuct(5, [Connector(None, XYZ(0, 20, 0), XYZ(-1, 0, 0)), Connector(None, XYZ(10, 20, 0), XYZ(1, 0, 0))],
                             level=EId(100))
         w.elements[5] = two_ends
-        w.picks = [(w.a, XYZ(0, 0, 0)), (two_ends, XYZ(9.5, 20, 0)), Cancelled]       # клік біля другого кінця
+        w.picks = [w.a, two_ends]
         run_button(w)
-        self.assertEqual(w.created[0].created_with['points'][1], (10, 20, 0))
+        self.assertEqual(w.created[0].created_with['points'], [(0, 0, 0), (0, 20, 0)])     # найближчий кінець воздуховода
+
+    def test_closest_pair_when_both_elements_have_several_free_ends(self):
+        w = scenario()
+        d1 = FakeDuct(5, [Connector(None, XYZ(0, 0, 0), XYZ(-1, 0, 0)), Connector(None, XYZ(10, 0, 0), XYZ(1, 0, 0))])
+        d2 = FakeDuct(6, [Connector(None, XYZ(11, 0, 0), XYZ(-1, 0, 0)), Connector(None, XYZ(30, 0, 0), XYZ(1, 0, 0))])
+        w.elements.update({5: d1, 6: d2})
+        w.picks = [d1, d2]
+        run_button(w)
+        self.assertEqual(w.created[0].created_with['points'], [(10, 0, 0), (11, 0, 0)])
+
+    def test_selection_is_whole_element_not_a_point(self):
+        w = scenario()
+        w.picks = [w.a, w.b]
+        run_button(w)
+        picks = [l for l in w.log if l[0] == 'pick']
+        self.assertEqual([p[1] for p in picks], ['element', 'element'])
+
+    def test_selection_filter_allows_only_duct_categories(self):
+        allowed = ('OST_DuctCurves', 'OST_DuctAccessory', 'OST_DuctFitting', 'OST_MechanicalEquipment')
+        denied = ('OST_FlexDuctCurves', 'OST_PipeCurves', 'OST_DuctTerminal')
+        result = {}
+        for name in allowed + denied:
+            w1 = scenario()
+            el = FakeDuct(50, [Connector(None, XYZ(1, 50, 0), XYZ(1, 0, 0))], cat=name)
+            w1.elements[50] = el
+            w1.picks = [el, w1.b]
+            run_button(w1)
+            result[name] = [l for l in w1.log if l[0] == 'pick'][0][2]
+        self.assertEqual(result, dict([(n, True) for n in allowed] + [(n, False) for n in denied]))
+
+    def test_filter_rejects_element_without_free_connectors(self):
+        w = scenario()
+        busy = FakeDuct(60, [Connector(None, XYZ(1, 1, 1), XYZ(1, 0, 0), connected=True)])
+        w.elements[60] = busy
+        w.picks = [busy, w.b]
+        run_button(w)
+        self.assertFalse([l for l in w.log if l[0] == 'pick'][0][2])
+
+    def test_connectors_follow_pick_order_for_size_and_system(self):
+        w = scenario()
+        w.picks = [w.b, w.a]                               # спочатку воздуховод, потім розподільник
+        run_button(w)
+        self.assertEqual(w.created[0].created_with['points'], [(3, 0, 1), (0, 0, 0)])
 
     def test_cancel_on_first_pick_creates_nothing(self):
         w = scenario()
@@ -423,7 +478,7 @@ class FlexButtonTests(unittest.TestCase):
     def test_too_short_distance_is_reported_and_rolled_back(self):
         w = scenario()
         w.b.ConnectorManager.Connectors[0].Origin = XYZ(0, 0, 0.001)        # менше 1/10 дюйма
-        w.picks = [(w.a, XYZ(0, 0, 0)), (w.b, XYZ(0, 0, 0.001)), Cancelled]
+        w.picks = [w.a, w.b, Cancelled]
         run_button(w)
         self.assertEqual(w.created, [])
         self.assertTrue(any(u'надто близько' in a for a in w.alerts))
@@ -431,7 +486,7 @@ class FlexButtonTests(unittest.TestCase):
 
     def test_same_connector_twice_is_rejected(self):
         w = scenario()
-        w.picks = [(w.a, XYZ(0, 0, 0)), (w.a, XYZ(0, 0, 0)), Cancelled]
+        w.picks = [w.a, w.a, Cancelled]
         run_button(w)
         self.assertEqual(w.created, [])
         self.assertTrue(any(u'той самий' in a for a in w.alerts))
@@ -439,7 +494,7 @@ class FlexButtonTests(unittest.TestCase):
     def test_system_chosen_by_user_when_connectors_have_none(self):
         w = scenario()
         w.a.MEPModel.ConnectorManager.Connectors[0].MEPSystem = None
-        w.picks = [(w.a, XYZ(0, 0, 0)), (w.b, XYZ(3, 0, 1)), Cancelled]
+        w.picks = [w.a, w.b, Cancelled]
         run_button(w, {u'Тип системи': 'Return Air'})
         self.assertEqual(w.created[0].created_with['system'], 11)
 
@@ -447,18 +502,18 @@ class FlexButtonTests(unittest.TestCase):
         w = scenario()
         w.a.LevelId = EId(-1)
         w.a.MEPModel.ConnectorManager.Connectors[0].Origin = XYZ(0, 0, 9.5)
-        w.picks = [(w.a, XYZ(0, 0, 9.5)), (w.b, XYZ(3, 0, 1)), Cancelled]
+        w.picks = [w.a, w.b, Cancelled]
         run_button(w)
         self.assertEqual(w.created[0].created_with['level'], 101)            # найближчий за висотою — L2
 
     def test_remembers_last_choice(self):
         w = scenario()
         cfg = {}
-        w.picks = [(w.a, XYZ(0, 0, 0)), (w.b, XYZ(3, 0, 1)), Cancelled]
+        w.picks = [w.a, w.b, Cancelled]
         run_button(w, {u'Тип гнучкого': 'Flex Alu', '_config': cfg})
         self.assertEqual(cfg.get('flex_type'), 'Flex Alu')
         w2 = scenario()
-        w2.picks = [(w2.a, XYZ(0, 0, 0)), (w2.b, XYZ(3, 0, 1)), Cancelled]
+        w2.picks = [w2.a, w2.b, Cancelled]
         run_button(w2, {'_config': cfg})
         self.assertEqual([l for l in w2.log if l[0] == 'select' and u'Тип гнучкого' in l[1]], [])     # вже запам'ятано
         self.assertEqual(w2.created[0].created_with['type'], 2)
@@ -470,7 +525,7 @@ class FlexButtonTests(unittest.TestCase):
         c = FakeInstance(3, [Connector(None, XYZ(0, 5, 0), XYZ(0, 0, 1))], level=EId(100))
         d = FakeDuct(4, [Connector(None, XYZ(3, 5, 1), XYZ(-1, 0, 0))], level=EId(100))
         w.elements.update({3: c, 4: d})
-        w.picks = [(w.a, XYZ(0, 0, 0)), (w.b, XYZ(3, 0, 1)), (c, XYZ(0, 5, 0)), (d, XYZ(3, 5, 1)), Cancelled]
+        w.picks = [w.a, w.b, c, d, Cancelled]
         return w
 
     def test_loop_off_by_default_builds_one_pair_and_stops(self):
@@ -482,20 +537,20 @@ class FlexButtonTests(unittest.TestCase):
     def test_loop_off_stops_after_error(self):
         w = scenario()
         w.b.ConnectorManager.Connectors[0].Origin = XYZ(0, 0, 0.001)
-        w.picks = [(w.a, XYZ(0, 0, 0)), (w.b, XYZ(0, 0, 0.001)), (w.a, XYZ(0, 0, 0)), (w.b, XYZ(3, 0, 1))]
+        w.picks = [w.a, w.b, w.a, w.b]
         run_button(w)
         self.assertEqual(w.created, [])
         self.assertEqual(len(w.picks), 2)                # без циклу — одна спроба
 
     def test_loop_off_stops_after_same_connector(self):
         w = scenario()
-        w.picks = [(w.a, XYZ(0, 0, 0)), (w.a, XYZ(0, 0, 0)), (w.a, XYZ(0, 0, 0)), (w.b, XYZ(3, 0, 1))]
+        w.picks = [w.a, w.a, w.a, w.b]
         run_button(w)
         self.assertEqual((w.created, len(w.picks)), ([], 2))
 
     def test_loop_on_continues_after_same_connector(self):
         w = scenario()
-        w.picks = [(w.a, XYZ(0, 0, 0)), (w.a, XYZ(0, 0, 0)), (w.a, XYZ(0, 0, 0)), (w.b, XYZ(3, 0, 1)), Cancelled]
+        w.picks = [w.a, w.a, w.a, w.b, Cancelled]
         run_button(w, loop=True)
         self.assertEqual(len(w.created), 1)
 
@@ -504,7 +559,7 @@ class FlexButtonTests(unittest.TestCase):
     def test_default_type_is_gibkiy_without_asking(self):
         w = scenario()
         w.flex_types.append(types.SimpleNamespace(Name=u'Гибкий', Id=EId(3)))
-        w.picks = [(w.a, XYZ(0, 0, 0)), (w.b, XYZ(3, 0, 1))]
+        w.picks = [w.a, w.b]
         run_button(w)
         self.assertEqual(w.created[0].created_with['type'], 3)
         self.assertEqual([l for l in w.log if l[0] == 'select'], [])
@@ -512,20 +567,20 @@ class FlexButtonTests(unittest.TestCase):
     def test_type_from_settings_wins_over_default(self):
         w = scenario()
         w.flex_types.append(types.SimpleNamespace(Name=u'Гибкий', Id=EId(3)))
-        w.picks = [(w.a, XYZ(0, 0, 0)), (w.b, XYZ(3, 0, 1))]
+        w.picks = [w.a, w.b]
         run_button(w, {'_config': {'flex_type': 'Flex Alu'}})
         self.assertEqual(w.created[0].created_with['type'], 2)
 
     def test_type_match_ignores_case(self):
         w = scenario()
         w.flex_types.append(types.SimpleNamespace(Name=u'ГИБКИЙ', Id=EId(3)))
-        w.picks = [(w.a, XYZ(0, 0, 0)), (w.b, XYZ(3, 0, 1))]
+        w.picks = [w.a, w.b]
         run_button(w)
         self.assertEqual(w.created[0].created_with['type'], 3)
 
     def test_asks_list_when_configured_type_missing(self):
         w = scenario()                                      # типів «Гибкий» немає
-        w.picks = [(w.a, XYZ(0, 0, 0)), (w.b, XYZ(3, 0, 1))]
+        w.picks = [w.a, w.b]
         run_button(w, {'_config': {'flex_type': u'Немає такого'}})
         self.assertEqual(len([l for l in w.log if l[0] == 'select']), 1)
 
@@ -549,7 +604,7 @@ class FlexButtonTests(unittest.TestCase):
         c = FakeInstance(3, [Connector(None, XYZ(0, 5, 0), XYZ(0, 0, 1))], level=EId(100))
         d = FakeDuct(4, [Connector(None, XYZ(3, 5, 1), XYZ(-1, 0, 0))], level=EId(100))
         w2.elements.update({3: c, 4: d})
-        w2.picks = [(w2.a, XYZ(0, 0, 0)), (w2.b, XYZ(3, 0, 1)), (c, XYZ(0, 5, 0)), (d, XYZ(3, 5, 1)), Cancelled]
+        w2.picks = [w2.a, w2.b, c, d, Cancelled]
         run_button(w2, {'_config': cfg})
         self.assertEqual([f.created_with['type'] for f in w2.created], [2, 2])
 
