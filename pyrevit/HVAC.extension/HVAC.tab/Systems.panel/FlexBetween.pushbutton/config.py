@@ -34,6 +34,7 @@ except Exception:
 doc = revit.doc
 CONFIG_SECTION = hvac_flex_settings.SECTION
 TITLE = u'Гнучкий повітровод — налаштування'
+NO_CHANGE = u'(не змінювати параметр)'      # пункт списку: значення порожнє — параметр не чіпати
 
 
 XAML = u"""
@@ -43,8 +44,8 @@ XAML = u"""
         WindowStartupLocation="CenterScreen" ResizeMode="NoResize" ShowInTaskbar="False">
   <StackPanel Margin="16">
     <TextBlock Text="Параметр «Гибкая конфигурация» (RBS_FLEX_PATTERN_PARAM) — значення:" Margin="0,0,0,4"/>
-    <TextBlock Text="(порожньо — параметр не чіпати)" Margin="0,0,0,4" Opacity="0.6"/>
-    <ComboBox x:Name="param_value" IsEditable="True" Margin="0,0,0,14"/>
+    <TextBlock Text="(можна лише обрати зі списку)" Margin="0,0,0,4" Opacity="0.6"/>
+    <ComboBox x:Name="param_value" IsEditable="False" Margin="0,0,0,14"/>
     <CheckBox x:Name="loop" Content="Цикл: будувати пари поспіль, поки не натиснуто Esc" Margin="0,0,0,16"/>
     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
       <Button x:Name="save_btn" Content="Зберегти" Width="100" Margin="0,0,8,0" IsDefault="True"/>
@@ -78,6 +79,26 @@ def read_options():
     return []
 
 
+def choices_for(value, options):
+    """Пункти списку: «не змінювати» + варіанти параметра з проєкту. Своє значення вводити не можна: якщо варіантів
+    прочитати не вдалося, у списку лишається збережене значення (за замовчуванням «Гибкий»)."""
+    items = [NO_CHANGE] + list(options)
+    if not options and value:
+        items.append(value)
+    return items
+
+
+def selected_for(value, items):
+    """Що показати вибраним: збережене значення, інакше «Гибкий», інакше «не змінювати»."""
+    if not value:
+        return NO_CHANGE
+    if value in items:
+        return value
+    if hvac_flex_settings.DEFAULT_CONFIG_VALUE in items:
+        return hvac_flex_settings.DEFAULT_CONFIG_VALUE
+    return NO_CHANGE
+
+
 def ask_with_window(value, loop, options):
     """Власне WPF-вікно: значення параметра, галочка «Цикл», кнопки «Зберегти» / «Скасувати».
     Повертає (значення, цикл) або None, якщо вікно закрито без збереження."""
@@ -87,14 +108,16 @@ def ask_with_window(value, loop, options):
             forms.WPFWindow.__init__(self, XAML, literal_string=True)
             self.result = None
             combo = self.FindName('param_value')
-            for option in options:
-                combo.Items.Add(option)
-            combo.Text = value
+            items = choices_for(value, options)
+            for item in items:
+                combo.Items.Add(item)
+            combo.SelectedItem = selected_for(value, items)
             self.FindName('loop').IsChecked = bool(loop)
             self.FindName('save_btn').Click += self.on_save
 
         def on_save(self, sender, args):
-            self.result = (self.FindName('param_value').Text or u'', bool(self.FindName('loop').IsChecked))
+            chosen = self.FindName('param_value').SelectedItem
+            self.result = (u'' if chosen in (None, NO_CHANGE) else chosen, bool(self.FindName('loop').IsChecked))
             self.Close()
 
     win = SettingsWindow()
@@ -104,18 +127,16 @@ def ask_with_window(value, loop, options):
 
 def ask_with_dialogs(value, loop, options):
     """Запасний варіант на стандартних діалогах pyRevit — якщо власне вікно не вдалося створити."""
-    if options:
-        ordered = [value] + [o for o in options if o != value] if value in options else list(options)
-        new_value = forms.SelectFromList.show(ordered, title=u'«Гибкая конфигурация» (зараз: «{0}»)'.format(value),
-                                              button_name=u'Далі', multiselect=False)
-    else:
-        new_value = forms.ask_for_string(default=value,
-                                         prompt=u'«Гибкая конфигурация» — значення (порожньо — не чіпати):', title=TITLE)
-    if new_value is None:
+    items = choices_for(value, options)
+    current = selected_for(value, items)
+    ordered = [current] + [i for i in items if i != current]
+    picked = forms.SelectFromList.show(ordered, title=u'«Гибкая конфигурация» (зараз: «{0}»)'.format(current),
+                                       button_name=u'Далі', multiselect=False)
+    if not picked:
         return None
     loop_on = forms.alert(u'Режим «Цикл» (пари поспіль, поки не натиснуто Esc).\nЗараз: {0}.\n\nУвімкнути?'
                           .format(u'увімкнено' if loop else u'вимкнено'), title=TITLE, yes=True, no=True)
-    return new_value, bool(loop_on)
+    return (u'' if picked == NO_CHANGE else picked), bool(loop_on)
 
 
 def main():

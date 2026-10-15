@@ -16,6 +16,7 @@ import types
 import tempfile
 import unittest
 
+NO = u'(не змінювати параметр)'          # пункт «не чіпати параметр» у списку налаштувань
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(HERE, '..', 'HVAC.extension', 'HVAC.tab', 'Systems.panel', 'FlexBetween.pushbutton', 'script.py')
 CONFIG = os.path.join(HERE, '..', 'HVAC.extension', 'HVAC.tab', 'Systems.panel', 'FlexBetween.pushbutton', 'config.py')
@@ -395,7 +396,7 @@ def run_button(world, answers=None, loop=False, path=None):
 
     class Combo(object):
         def __init__(self):
-            self.Items, self.Text = ItemsList(), u''
+            self.Items, self.SelectedItem = ItemsList(), None
 
     class Check(object):
         IsChecked = False
@@ -413,7 +414,7 @@ def run_button(world, answers=None, loop=False, path=None):
             for name in ('param_value', 'loop', 'save_btn', 'cancel_btn'):
                 assert 'x:Name="%s"' % name in xaml, name
             assert literal_string
-            assert 'IsEditable="True"' in xaml
+            assert 'IsEditable="False"' in xaml                # лише вибір зі списку, вводити своє не можна
             self.ctl = {'param_value': Combo(), 'loop': Check(), 'save_btn': Button(), 'cancel_btn': Button()}
             self.closed = False
 
@@ -425,11 +426,11 @@ def run_button(world, answers=None, loop=False, path=None):
 
         def ShowDialog(self):
             c = self.ctl
-            world.form = types.SimpleNamespace(value=c['param_value'].Text, options=list(c['param_value'].Items),
-                                               loop=c['loop'].IsChecked)
+            world.form = types.SimpleNamespace(value=c['param_value'].SelectedItem,
+                                               options=list(c['param_value'].Items), loop=c['loop'].IsChecked)
             reply = answers.get('_form')              # None — вікно закрито без збереження
             if reply is not None:
-                c['param_value'].Text = reply['value']
+                c['param_value'].SelectedItem = reply['value']
                 c['loop'].IsChecked = reply['loop']
                 for h in c['save_btn'].Click.handlers:
                     h(None, None)
@@ -768,13 +769,13 @@ class FlexButtonTests(unittest.TestCase):
         w = scenario()
         self._project_with_enum(w, clamp=True)
         run_button(w, {'_form': {'value': u'Гибкий', 'loop': False}}, path=CONFIG)
-        self.assertEqual(w.form.options, [u'Жорсткий', u'Гибкий', u'Спіральний'])
+        self.assertEqual(w.form.options, [NO, u'Жорсткий', u'Гибкий', u'Спіральний'])
 
     def test_config_window_lists_parameter_options_and_defaults_to_gibkiy(self):
         w = scenario()
         self._project_with_enum(w)
         run_button(w, {'_form': {'value': u'Гибкий', 'loop': False}}, path=CONFIG)
-        self.assertEqual(w.form.options, [u'Жорсткий', u'Гибкий', u'Спіральний'])
+        self.assertEqual(w.form.options, [NO, u'Жорсткий', u'Гибкий', u'Спіральний'])
         self.assertEqual((w.form.value, w.form.loop), (u'Гибкий', False))
 
     def test_reading_options_does_not_change_the_project(self):
@@ -788,12 +789,12 @@ class FlexButtonTests(unittest.TestCase):
         w = scenario()
         self._project_with_enum(w, on_instance=False)
         run_button(w, {'_form': {'value': u'Гибкий', 'loop': False}}, path=CONFIG)
-        self.assertEqual(w.form.options, [u'Жорсткий', u'Гибкий', u'Спіральний'])
+        self.assertEqual(w.form.options, [NO, u'Жорсткий', u'Гибкий', u'Спіральний'])
 
     def test_no_options_available_window_still_opens_with_default_text(self):
         w = scenario()                                                # у проєкті немає параметра
         run_button(w, {'_form': {'value': u'Гибкий', 'loop': False}}, path=CONFIG)
-        self.assertEqual((w.form.options, w.form.value), ([], u'Гибкий'))
+        self.assertEqual((w.form.options, w.form.value), ([NO, u'Гибкий'], u'Гибкий'))        # своє вводити не можна
         self.assertEqual(w.tx, [])
 
     def test_option_reading_failure_is_not_critical(self):
@@ -808,7 +809,7 @@ class FlexButtonTests(unittest.TestCase):
         inst.add(Boom(u'Гибкая конфигурация', [u'a']), 'flexpat')
         w.flex_instances.append(inst)
         run_button(w, {'_form': {'value': u'Гибкий', 'loop': False}}, path=CONFIG)
-        self.assertEqual(w.form.options, [])                          # вікно все одно відкрилось
+        self.assertEqual(w.form.options, [NO, u'Гибкий'])             # вікно все одно відкрилось
 
     def test_config_window_default_value_is_gibkiy_and_loop_off(self):
         w = scenario()
@@ -845,18 +846,44 @@ class FlexButtonTests(unittest.TestCase):
         self.assertEqual([l[2] for l in w.log if l[0] == 'select'][0][0], u'Гибкий')   # поточне — першим
         self.assertIn(u'XAML не розібрано', self._log_text())
 
-    def test_config_dialogs_without_options_ask_for_text(self):
+    def test_config_dialogs_without_options_offer_saved_value_only(self):
         w = scenario()
         cfg = {}
-        run_button(w, {'_no_wpf': True, '_ask_values': [u'Текст'], '_alert_result': False, '_config': cfg}, path=CONFIG)
-        self.assertEqual((cfg['config_value'], cfg['loop']), (u'Текст', 'false'))
+        run_button(w, {'_no_wpf': True, '_alert_result': False, '_config': cfg}, path=CONFIG)
+        self.assertEqual([l[2] for l in w.log if l[0] == 'select'][0], [u'Гибкий', NO])
+        self.assertEqual((cfg['config_value'], cfg['loop']), (u'Гибкий', 'false'))
 
     def test_config_dialogs_cancel_changes_nothing(self):
         w = scenario()
         cfg = {}
         with self.assertRaises(ExitScript):
-            run_button(w, {'_no_wpf': True, '_ask_values': [None], '_config': cfg}, path=CONFIG)
+            run_button(w, {'_no_wpf': True, u'Гибкая конфигурация': None, '_config': cfg}, path=CONFIG)
         self.assertEqual(cfg, {})
+
+    def test_config_dialogs_no_change_item_saves_empty_value(self):
+        w = scenario()
+        cfg = {}
+        run_button(w, {'_no_wpf': True, u'Гибкая конфигурация': NO, '_alert_result': False, '_config': cfg}, path=CONFIG)
+        self.assertEqual(cfg['config_value'], u'')
+
+    def test_window_cannot_take_free_text(self):
+        with io.open(CONFIG, encoding='utf-8') as f:
+            text = f.read()
+        self.assertIn('IsEditable="False"', text)
+        self.assertNotIn('.Text', text.split('def main')[0].split('def ask_with_window')[1])   # значення — SelectedItem, не Text
+
+    def test_window_no_change_item_saves_empty_value(self):
+        w = scenario()
+        cfg = {'config_value': u'Гибкий'}
+        run_button(w, {'_form': {'value': NO, 'loop': False}, '_config': cfg}, path=CONFIG)
+        self.assertEqual(cfg['config_value'], u'')
+
+    def test_window_selects_saved_option_empty_means_no_change_and_stale_falls_back_to_gibkiy(self):
+        for saved, shown in ((u'Спіральний', u'Спіральний'), (u'', NO), (u'Немає такого', u'Гибкий')):
+            w = scenario()
+            self._project_with_enum(w)
+            run_button(w, {'_form': {'value': shown, 'loop': False}, '_config': {'config_value': saved}}, path=CONFIG)
+            self.assertEqual(w.form.value, shown, saved)
 
     # ---------- установка: папка lib ----------
 
