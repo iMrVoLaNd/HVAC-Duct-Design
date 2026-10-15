@@ -6,10 +6,34 @@ __doc__ = (u'Створює шаблон виду з фільтрами для �
            u'заливка кольором системи з палітри, лінії бічних стінок обраного кольору і товщини.')
 
 # Сумісно з IronPython 3.4 (pyRevit) і CPython: без f-рядків та сучасного синтаксису.
-from pyrevit import revit, DB, forms, script
-from System.Collections.Generic import List
+import os
+import sys
 
-import hvac_palette
+# Папка lib розширення (HVAC.extension/lib). Зазвичай pyRevit додає її сам; додаємо явно про всяк випадок.
+try:
+    _LIB = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', 'lib'))
+    if _LIB not in sys.path:
+        sys.path.insert(0, _LIB)
+except Exception:
+    _LIB = u'?'
+try:
+    import hvac_log
+except ImportError:
+    from pyrevit import forms
+    forms.alert(u'Не знайдено файл lib\\hvac_log.py.\nСкопіюйте в розширення ВСЮ папку HVAC.extension разом із lib '
+                u'(усі файли) і перезавантажте pyRevit.\n\nШукав тут: {0}'.format(_LIB),
+                title=u'HVAC', exitscript=True)
+TOOL = 'systems_template'
+
+try:
+    from pyrevit import revit, DB, forms, script
+    from System.Collections.Generic import List
+
+    import hvac_palette
+    import hvac_revit
+except Exception:
+    hvac_log.log_exception(TOOL, u'імпорт модулів')
+    raise
 
 doc = revit.doc
 output = script.get_output()
@@ -65,7 +89,7 @@ def find_parameter(param_name):
     """Спільний або проєктний параметр за іменем (ADSK_Система_Имя)."""
     for cls in (DB.SharedParameterElement, DB.ParameterElement):
         for p in DB.FilteredElementCollector(doc).OfClass(cls):
-            if p.Name == param_name:
+            if hvac_revit.element_name(DB, p) == param_name:
                 return p
     return None
 
@@ -121,7 +145,7 @@ def make_overrides(fill_rgb, line_rgb, line_weight, solid_id):
 
 
 def view_templates():
-    return dict((v.Name, v) for v in DB.FilteredElementCollector(doc).OfClass(DB.View) if v.IsTemplate)
+    return dict((hvac_revit.element_name(DB, v), v) for v in DB.FilteredElementCollector(doc).OfClass(DB.View) if v.IsTemplate)
 
 
 def unique_name(name, taken):
@@ -209,7 +233,7 @@ def main():
             template.Name = name
         allow_filters_in_template(template)
 
-        existing = dict((f.Name, f) for f in DB.FilteredElementCollector(doc).OfClass(DB.ParameterFilterElement))
+        existing = dict((hvac_revit.element_name(DB, f), f) for f in DB.FilteredElementCollector(doc).OfClass(DB.ParameterFilterElement))
         in_template = set(eid_int(i) for i in template.GetFilters())
 
         for s in systems:
@@ -253,4 +277,4 @@ def main():
             view.ViewTemplateId = template.Id
 
 
-main()
+hvac_log.run(TOOL, main, doc)

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Налаштування кнопок «Гнучкий між конекторами»: режим циклу (за замовчуванням ВИМКНЕНО).
+"""Налаштування кнопки QuickFlexConnect: режим циклу (за замовчуванням ВИМКНЕНО).
 
 Не залежить від Revit: працює з об'єктом конфігурації pyRevit (script.get_config(...)) і лише
 читає/пише параметр 'loop' текстом 'true'/'false'. Сумісно з IronPython 3.4 і CPython.
@@ -25,38 +25,61 @@ def set_loop(cfg, value):
     cfg.set_option(LOOP_KEY, 'true' if value else 'false')
 
 
-# ---------- тип гнучкого повітровода ----------
+# ---------- звідки брати тип гнучкого повітровода ----------
+# За замовчуванням тип обирається у вікні зі списку. Якщо ввімкнено — після вибору двох елементів кнопка просить
+# клацнути на будь-який гнучкий повітровод у моделі й бере тип з нього.
 
-FLEX_TYPE_KEY = 'flex_type'
-DEFAULT_FLEX_TYPE = u'Гибкий'         # назва типу за замовчуванням (як у шаблоні проєкту)
+TYPE_FROM_MODEL_KEY = 'type_from_model'
 
 
-def get_flex_type(cfg):
-    """Назва типу з налаштувань; якщо нічого не збережено — DEFAULT_FLEX_TYPE."""
+def is_type_from_model(cfg):
     try:
-        value = cfg.get_option(FLEX_TYPE_KEY, u'')
+        return _truthy(cfg.get_option(TYPE_FROM_MODEL_KEY, 'false'))
     except Exception:
-        value = u''
-    return value if value else DEFAULT_FLEX_TYPE
+        return False
 
 
-def set_flex_type(cfg, name):
-    cfg.set_option(FLEX_TYPE_KEY, name)
+def set_type_from_model(cfg, value):
+    cfg.set_option(TYPE_FROM_MODEL_KEY, 'true' if value else 'false')
 
 
-def find_type_index(names, wanted):
-    """Індекс типу за назвою: точний збіг, потім без урахування регістру, потім за початком назви.
-    Не знайдено — None (тоді кнопка покаже список)."""
-    if not wanted:
+# ---------- параметр «Гибкая конфигурация» (BuiltInParameter.RBS_FLEX_PATTERN_PARAM) ----------
+# Після побудови гнучкого повітровода кнопка записує це значення в параметр (спершу шукає його в екземплярі, потім
+# у типі). Порожнє значення — параметр не чіпати. Тип гнучкого повітровода обирається при кожному запуску кнопки.
+
+CONFIG_VALUE_KEY = 'config_value'
+DEFAULT_CONFIG_VALUE = u'Гибкий'
+BUILTIN_PARAM = 'RBS_FLEX_PATTERN_PARAM'       # BuiltInParameter, не залежить від мови Revit
+FALLBACK_PARAM_NAME = u'Гибкая конфигурация'   # якщо вбудованого параметра не знайдено — шукаємо за назвою
+
+
+def get_config_value(cfg):
+    """Значення параметра; порожнє зберігається порожнім (= «не чіпати параметр»)."""
+    try:
+        value = cfg.get_option(CONFIG_VALUE_KEY, None)
+    except Exception:
+        value = None
+    return DEFAULT_CONFIG_VALUE if value is None else value.strip()
+
+
+CONFIG_NUMBER_KEY = 'config_value_num'
+
+
+def get_config_number(cfg):
+    """Число, що відповідає збереженому значенню-тексту (щоб не перебирати варіанти щоразу); None — невідомо."""
+    try:
+        raw = cfg.get_option(CONFIG_NUMBER_KEY, '')
+        return int(str(raw).strip()) if str(raw).strip() != '' else None
+    except Exception:
         return None
-    for i, n in enumerate(names):
-        if n == wanted:
-            return i
-    low = wanted.strip().lower()
-    for i, n in enumerate(names):
-        if n.strip().lower() == low:
-            return i
-    for i, n in enumerate(names):
-        if n.strip().lower().startswith(low):
-            return i
-    return None
+
+
+def set_config_value(cfg, value, number=None):
+    """Зберегти значення (текст) і, якщо відоме, відповідне число; без числа старе число стирається."""
+    cfg.set_option(CONFIG_VALUE_KEY, value.strip())
+    cfg.set_option(CONFIG_NUMBER_KEY, '' if number is None else str(int(number)))
+
+
+def set_config_number(cfg, number):
+    """Запам'ятати число для вже збереженого значення (кнопка сама дізналась його при першому запису)."""
+    cfg.set_option(CONFIG_NUMBER_KEY, str(int(number)))

@@ -1,26 +1,31 @@
 # -*- coding: utf-8 -*-
-"""Сухий прогон кнопки «Гнучкий між конекторами» на заглушках API Revit (без Revit).
+"""Сухий прогон кнопки QuickFlexConnect на заглушках API Revit (без Revit).
 
 Запуск з кореня репозиторію:   python3 -m unittest discover -s pyrevit/tests -v
 Заглушки повторюють лише ті виклики API, що використовує скрипт; це не заміна перевірці в Revit 2026,
 але ловить помилки в логіці (вибір елементів і конекторів, система, дотичні, з'єднання, цикл, скасування).
 """
 import io
+import shutil
 import math
 import os
 import re
 import runpy
 import sys
 import types
+import tempfile
 import unittest
 
+NO = u'(не змінювати параметр)'          # пункт «не чіпати параметр» у списку налаштувань
 HERE = os.path.dirname(os.path.abspath(__file__))
-SCRIPT = os.path.join(HERE, '..', 'HVAC.extension', 'HVAC.tab', 'Systems.panel', 'FlexBetween.pushbutton', 'script.py')
-CONFIG = os.path.join(HERE, '..', 'HVAC.extension', 'HVAC.tab', 'Systems.panel', 'FlexBetween.pushbutton', 'config.py')
+SCRIPT = os.path.join(HERE, '..', 'HVAC.extension', 'HVAC.tab', 'Systems.panel', 'QuickFlexConnect.pushbutton', 'script.py')
+CONFIG = os.path.join(HERE, '..', 'HVAC.extension', 'HVAC.tab', 'Systems.panel', 'QuickFlexConnect.pushbutton', 'config.py')
 LIB = os.path.join(HERE, '..', 'HVAC.extension', 'lib')
+os.environ['HVAC_LOG_DIR'] = tempfile.mkdtemp()      # журнал тестів — не в реальний %APPDATA%
 if LIB not in sys.path:
     sys.path.insert(0, LIB)
 import hvac_flex_settings
+import hvac_log
 
 
 class XYZ(object):
@@ -71,12 +76,13 @@ class Connector(object):
     _n = 0
 
     def __init__(self, owner, origin, direction, domain=Domain.DomainHvac, connected=False, ctype=CType.End,
-                 system=None, radius=0.25):
+                 system=None, radius=0.25, shape='round', width=None, height=None):
         Connector._n += 1
         self.Id = Connector._n
         self.Owner, self.Origin, self.Domain, self.IsConnected, self.ConnectorType = owner, origin, domain, connected, ctype
         self.CoordinateSystem = types.SimpleNamespace(BasisZ=direction)
-        self.MEPSystem, self.Shape, self.Radius = system, 'round', radius
+        self.MEPSystem, self.Shape, self.Radius = system, shape, radius
+        self.Width, self.Height = width, height
         self.connected_to = []
 
     def ConnectTo(self, other):
@@ -120,6 +126,18 @@ class FakeInstance(object):      # сімейство: конектори чер
             self.MEPModel.ConnectorManager.Connectors.append(c)
 
 
+class FlexSample(object):
+    """Існуючий гнучкий повітровод у моделі — з нього беруть тип."""
+
+    def __init__(self, ident, type_el):
+        self.Id = EId(ident)
+        self.Category = category('OST_FlexDuctCurves')
+        self._type = type_el
+
+    def GetTypeId(self):
+        return TypeRef(self._type)
+
+
 class ExitScript(Exception):
     pass
 
@@ -136,14 +154,113 @@ class Param(object):
         self.value = v
 
 
-class FakeFlex(object):
+class CfgParam(object):
+    """Параметр з іменем («Гибкая конфигурация»): значення, тип зберігання, прапорець «лише читання»."""
+
+    def __init__(self, name, value, storage='s', read_only=False, accepts=True):
+        self.Definition = types.SimpleNamespace(Name=name)
+        self.value, self.StorageType, self.IsReadOnly, self.accepts = value, storage, read_only, accepts
+        self.sets = []
+
+    def AsString(self):
+        return self.value
+
+    def AsInteger(self):
+        return self.value
+
+    def AsValueString(self):
+        return str(self.value)
+
+    def Set(self, v):
+        self.sets.append(('Set', v))
+        if self.accepts:
+            self.value = v
+        return self.accepts
+
+    def SetValueString(self, v):
+        self.sets.append(('SetValueString', v))
+        if self.accepts:
+            self.value = v
+        return self.accepts
+
+
+class EnumParam(CfgParam):
+    """Параметр-список: ціле число, на екрані — текст. lenient=True: Set приймає будь-яке число (як може бути в Revit),
+    а текст для зайвих чисел порожній."""
+
+    def __init__(self, name, options, value=0, lenient=False, read_only=False, clamp=False):
+        CfgParam.__init__(self, name, value, storage='i', read_only=read_only)
+        self.options, self.lenient, self.clamp = list(options), lenient or clamp, clamp
+
+    def AsInteger(self):
+        return self.value
+
+    def AsValueString(self):
+        if self.clamp:                      # Revit може «притискати» зайве число до останнього варіанта
+            return self.options[min(self.value, len(self.options) - 1)]
+        return self.options[self.value] if 0 <= self.value < len(self.options) else u''
+
+    def Set(self, v):
+        self.sets.append(('Set', v))
+        if not isinstance(v, int) or (v >= len(self.options) and not self.lenient):
+            return False
+        self.value = v
+        return True
+
+
+class HasParams(object):
+    def __init__(self, *params):
+        self.cfg_params, self.bip_params = {}, {}
+        for p in params:
+            self.add(p)
+
+    def add(self, p, bip=None):
+        """Додати параметр: за назвою й (якщо вказано) за BuiltInParameter."""
+        self.cfg_params[p.Definition.Name] = p
+        if bip is not None:
+            self.bip_params[bip] = p
+        return p
+
+    def get_Parameter(self, bip):
+        return self.bip_params.get(bip)
+
+    def LookupParameter(self, name):
+        return self.cfg_params.get(name)
+
+    @property
+    def Parameters(self):
+        return list(self.cfg_params.values())
+
+
+class FlexTypeEl(HasParams):
+    def __init__(self, name, ident, *params, **kw):
+        HasParams.__init__(self, *params)
+        self.Name, self.Id = name, EId(ident)
+        if 'shape' in kw:
+            self.Shape = kw['shape']              # без атрибута — як коли Revit не дає форму типу
+
+
+class TypeRef(EId):
+    """ElementId типу, який «знає» свій елемент (щоб doc.GetElement(flex.GetTypeId()) працював у заглушці)."""
+
+    def __init__(self, el):
+        EId.__init__(self, el.Id.Value)
+        self.el = el
+
+
+class FakeFlex(HasParams):
     def __init__(self, points, ident):
+        HasParams.__init__(self)
         self.Id = EId(ident)
         self.params = {}
         self.ConnectorManager = types.SimpleNamespace(Connectors=ConnSet([
             Connector(self, points[0], XYZ(1, 0, 0)), Connector(self, points[-1], XYZ(-1, 0, 0))]))
 
     def get_Parameter(self, bip):
+        if bip in self.bip_params:
+            return self.bip_params[bip]
+        if bip == 'flexpat':
+            return None
         return self.params.setdefault(bip, Param())
 
 
@@ -152,23 +269,34 @@ class World(object):
 
     def __init__(self, tangent_api=True):
         self.elements = {}
-        self.flex_types = [types.SimpleNamespace(Name='Flex Round', Id=EId(1)), types.SimpleNamespace(Name='Flex Alu', Id=EId(2))]
+        self.flex_types = [FlexTypeEl('Flex Round', 1), FlexTypeEl('Flex Alu', 2)]
         self.system_types = [types.SimpleNamespace(Name='Supply Air', Id=EId(10)), types.SimpleNamespace(Name='Return Air', Id=EId(11))]
         self.levels = [types.SimpleNamespace(Name='L1', Id=EId(100), Elevation=0.0), types.SimpleNamespace(Name='L2', Id=EId(101), Elevation=10.0)]
         self.created, self.log, self.tangent_api, self.next_id = [], [], tangent_api, 900
         self.picks = []          # сценарій вибору: елемент або Cancelled
         self.alerts, self.answers = [], {}
         self.tx = []
+        self.flex_instances = []
 
 
 def run_button(world, answers=None, loop=False, path=None):
     DB = types.SimpleNamespace()
     DB.ElementId = EId
     DB.XYZ = XYZ
-    DB.BuiltInCategory = types.SimpleNamespace(**CATS)
+    class CountingCategories(object):
+        """BuiltInCategory, що рахує звернення: перевірка, що фільтр не перераховує категорії при кожному русі курсора."""
+
+        def __getattr__(self, name):
+            if name in CATS:
+                world.category_reads = getattr(world, 'category_reads', 0) + 1
+                return CATS[name]
+            raise AttributeError(name)
+
+    DB.BuiltInCategory = CountingCategories()
     DB.Domain, DB.ConnectorType = Domain, CType
-    DB.ConnectorProfileType = types.SimpleNamespace(Round='round', Rectangular='rect')
-    DB.BuiltInParameter = types.SimpleNamespace(RBS_CURVE_DIAMETER_PARAM='diam', RBS_CURVE_WIDTH_PARAM='w', RBS_CURVE_HEIGHT_PARAM='h')
+    DB.StorageType = types.SimpleNamespace(String='s', Integer='i', Double='d', ElementId='e')
+    DB.ConnectorProfileType = types.SimpleNamespace(Round='round', Rectangular='rect', Oval='oval')
+    DB.BuiltInParameter = types.SimpleNamespace(RBS_CURVE_DIAMETER_PARAM='diam', RBS_CURVE_WIDTH_PARAM='w', RBS_CURVE_HEIGHT_PARAM='h', RBS_FLEX_PATTERN_PARAM='flexpat')
 
     class FlexDuctType(object):
         pass
@@ -191,15 +319,34 @@ def run_button(world, answers=None, loop=False, path=None):
                 (pts,), tangents = rest, None
             world.next_id += 1
             f = FakeFlex(list(pts), world.next_id)
+            f.GetTypeId = lambda: TypeRef([t for t in world.flex_types if t.Id.Value == type_id.Value][0])
             f.created_with = dict(system=system_id.Value, type=type_id.Value, level=level_id.Value,
                                   points=[p.t() for p in pts], tangents=tangents)
             world.created.append(f)
             world.elements[world.next_id] = f
             return f
 
-    DB.Mechanical = types.SimpleNamespace(FlexDuct=FlexDuct, FlexDuctType=FlexDuctType, MechanicalSystemType=MechanicalSystemType)
+    class DuctSizeSettings(object):
+        @staticmethod
+        def GetDuctSizeSettings(d):
+            if answers.get('_sizes_crash'):
+                raise RuntimeError('налаштування розмірів недоступні')
+            sizes = [types.SimpleNamespace(NominalDiameter=x / 304.8, UsedInSizeLists=ok)
+                     for x, ok in answers.get('_standard_sizes', [])]
+            return [types.SimpleNamespace(Key='rect-shape', Value=[]), types.SimpleNamespace(Key='round-shape', Value=sizes)]
+
+    DB.Mechanical = types.SimpleNamespace(FlexDuct=FlexDuct, FlexDuctType=FlexDuctType,
+                                          MechanicalSystemType=MechanicalSystemType, DuctSizeSettings=DuctSizeSettings,
+                                          DuctShape=types.SimpleNamespace(Round='round-shape', Rectangular='rect-shape',
+                                                                          Oval='oval-shape'))
     DB.Level = Level
-    DB.Element = types.SimpleNamespace(Name=types.SimpleNamespace(GetValue=lambda t: t.Name))
+    class NameDescriptor(object):
+        """Як у IronPython 3: DB.Element.Name — getset_descriptor, БЕЗ методу GetValue."""
+
+        def __get__(self, obj, objtype=None):
+            return obj.Name
+
+    DB.Element = types.SimpleNamespace(Name=NameDescriptor())
 
     class Collector(object):
         def __init__(self, d):
@@ -207,7 +354,7 @@ def run_button(world, answers=None, loop=False, path=None):
 
         def OfClass(self, cls):
             return {FlexDuctType: list(world.flex_types), MechanicalSystemType: list(world.system_types),
-                    Level: list(world.levels)}.get(cls, [])
+                    Level: list(world.levels), FlexDuct: list(world.flex_instances)}.get(cls, [])
 
     DB.FilteredElementCollector = Collector
 
@@ -229,7 +376,12 @@ def run_button(world, answers=None, loop=False, path=None):
     class Doc(object):
         ActiveView = types.SimpleNamespace(GenLevel=None)
 
+        def Regenerate(self):
+            world.log.append(('regenerate',))
+
         def GetElement(self, eid):
+            if hasattr(eid, 'el'):
+                return eid.el
             return world.elements[eid.Value if hasattr(eid, 'Value') else eid]
 
     doc = Doc()
@@ -242,7 +394,7 @@ def run_button(world, answers=None, loop=False, path=None):
             if nxt is Cancelled:
                 raise Cancelled()
             el = nxt
-            world.log.append(('pick', otype, flt.AllowElement(el), prompt))
+            world.log.append(('pick', otype, flt.AllowElement(el), prompt, getattr(type(flt), '__namespace__', None)))
             return types.SimpleNamespace(ElementId=el.Id)
 
     UI = types.SimpleNamespace(Selection=types.SimpleNamespace(
@@ -255,7 +407,7 @@ def run_button(world, answers=None, loop=False, path=None):
         world.alerts.append(msg)
         if exitscript:
             raise ExitScript(msg)
-        return True
+        return answers.get('_alert_result', True)
 
     class SelectFromList(object):
         @staticmethod
@@ -266,26 +418,125 @@ def run_button(world, answers=None, loop=False, path=None):
                     return val
             return items[0]
 
-    class Comp(object):
-        def __init__(self, kind, name=None, **kw):
-            self.kind, self.name, self.kw = kind, name, kw
+    class ItemsList(list):
+        def Add(self, x):
+            self.append(x)
 
-    class FlexForm(object):
-        def __init__(self, title, components):
-            self.title, self.components, self.values = title, components, {}
+        def Clear(self):
+            del self[:]
 
-        def show(self):
-            world.form = self
-            reply = answers.get('_form')                  # None — вікно закрито хрестиком
+    class Event(object):
+        def __init__(self):
+            self.handlers = []
+
+        def __iadd__(self, h):                    # control.Click += handler
+            self.handlers.append(h)
+            return self
+
+        def fire(self):
+            for h in list(self.handlers):
+                h(None, None)
+
+    class Combo(object):
+        def __init__(self):
+            self.Items, self.SelectedItem, self._i, self.IsEnabled = ItemsList(), None, -1, True
+            self.SelectionChanged = Event()
+
+        def Focus(self):
+            return True
+
+        @property
+        def SelectedIndex(self):
+            return self._i
+
+        @SelectedIndex.setter
+        def SelectedIndex(self, i):
+            self._i = i
+            self.SelectedItem = self.Items[i] if 0 <= i < len(self.Items) else None
+            self.SelectionChanged.fire()          # як у WPF: зміна індексу викликає SelectionChanged
+
+    class Check(object):
+        IsChecked = False
+
+    class Chip(object):
+        def __init__(self):
+            self.Click, self.IsChecked, self.Content = Event(), False, u''
+
+    class Button(object):
+        def __init__(self):
+            self.Click = Event()
+
+    class WPFWindow(object):
+        """Заглушка pyrevit.forms.WPFWindow: XAML-елементи за x:Name, ShowDialog імітує вибір користувача."""
+
+        def __init__(self, xaml, literal_string=False, **kw):
+            if answers.get('_wpf_crash'):
+                raise RuntimeError('XAML не розібрано')
+            assert literal_string
+            self.Title = u''
+            self.ctl = {}
+            for name in re.findall(r'x:Name="(\w+)"', xaml):
+                self.ctl[name] = (Button() if name.endswith('_btn') else Chip() if name.startswith('chip') else
+                                  Check() if name in ('loop', 'pick_type') else Combo())
+            if 'param_value' in self.ctl:
+                assert 'IsEditable="False"' in xaml            # лише вибір зі списку, вводити своє не можна
+            self.closed = False
+
+        def FindName(self, name):
+            return self.ctl[name]
+
+        def Close(self):
+            self.closed = True
+
+        def ShowDialog(self):
+            c = self.ctl
+            if 'chip0' in c:                                  # вікно розміру й типу (розміри різні)
+                world.log.append(('buildwin', [c['chip0'].Content, c['chip1'].Content], list(c['custom_size'].Items),
+                                  c['custom_size'].IsEnabled))
+                reply = answers.get('_build', {})
+                if reply is None:
+                    return                                    # закрито без вибору
+                if 'custom' in reply:
+                    c['custom_size'].SelectedIndex = reply['custom']
+                if 'chip' in reply:
+                    c['chip%d' % reply['chip']].Click.fire()
+                world.build_state = types.SimpleNamespace(
+                    types=list(c['types'].Items), type=c['types'].SelectedItem,
+                    chips=[c['chip0'].IsChecked, c['chip1'].IsChecked], custom_index=c['custom_size'].SelectedIndex)
+                if 'type' in reply:
+                    c['types'].SelectedItem = reply['type']
+                c['ok_btn'].Click.fire()
+                return
+            if 'choices' in c:                                # компактне вікно вибору типу
+                combo = c['choices']
+                world.log.append(('select', self.Title, list(combo.Items), combo.SelectedItem))
+                for key, val in answers.items():
+                    if isinstance(key, type(u'')) and key in self.Title:
+                        if val is None:
+                            return                            # закрито без вибору
+                        combo.SelectedItem = val
+                for h in c['ok_btn'].Click.handlers:
+                    h(None, None)
+                return
+            world.form = types.SimpleNamespace(value=c['param_value'].SelectedItem,
+                                               options=list(c['param_value'].Items), loop=c['loop'].IsChecked,
+                                               pick_type=c['pick_type'].IsChecked)
+            reply = answers.get('_form')              # None — вікно закрито без збереження
             if reply is not None:
-                self.values = dict(reply)
+                c['param_value'].SelectedItem = reply['value']
+                c['loop'].IsChecked = reply['loop']
+                c['pick_type'].IsChecked = reply.get('pick_type', c['pick_type'].IsChecked)
+                for h in c['save_btn'].Click.handlers:
+                    h(None, None)
 
-    forms = types.SimpleNamespace(
-        alert=alert, SelectFromList=SelectFromList, FlexForm=FlexForm,
-        Label=lambda text: Comp('label', text=text),
-        ComboBox=lambda name, options, **kw: Comp('combo', name, options=list(options), **kw),
-        CheckBox=lambda name, text, **kw: Comp('check', name, text=text, **kw),
-        Separator=lambda: Comp('sep'), Button=lambda text, **kw: Comp('button', text=text))
+    def ask_for_string(default=None, prompt=None, title=None):
+        world.log.append(('ask', prompt, default))
+        vals = answers.get('_ask_values')
+        return vals.pop(0) if vals is not None else default
+
+    forms = types.SimpleNamespace(alert=alert, SelectFromList=SelectFromList, ask_for_string=ask_for_string)
+    if not answers.get('_no_wpf'):
+        forms.WPFWindow = WPFWindow
 
     class Output(object):
         def print_md(self, t):
@@ -429,6 +680,826 @@ class FlexButtonTests(unittest.TestCase):
         run_button(w)
         self.assertEqual(w.created[0].created_with['points'], [(10, 0, 0), (11, 0, 0)])
 
+    def test_filter_class_has_unique_namespace_for_cpython_engine(self):
+        spaces = []
+        for _ in range(2):                                   # два запуски кнопки = два створення класу
+            w = scenario()
+            w.picks = [w.a, w.b]
+            run_button(w)
+            spaces.append([l[4] for l in w.log if l[0] == 'pick'][0])
+        self.assertTrue(all(spaces) and spaces[0] != spaces[1], spaces)
+
+    # ---------- ім'я елемента (IronPython 3: Element.Name без GetValue) ----------
+
+    def test_type_names_work_when_element_name_has_no_getvalue(self):
+        w = scenario()
+        w.picks = [w.a, w.b]
+        run_button(w)                                        # раніше: AttributeError 'getset_descriptor'…'GetValue'
+        self.assertEqual(len(w.created), 1)
+        self.assertNotIn(u'GetValue', self._log_text())
+
+    # ---------- параметр «Гибкая конфигурация» ----------
+
+    def _built(self, w, answers=None, **kw):
+        w.picks = [w.a, w.b]
+        run_button(w, answers, **kw)
+        return w.created[0]
+
+    def test_type_is_chosen_after_button_press_every_time(self):
+        w = scenario()
+        self._built(w, {u'Тип гнучкого': 'Flex Alu'})
+        self.assertEqual([l[1] for l in w.log if l[0] == 'select'], [u'Тип гнучкого повітровода:'])
+        self.assertEqual(w.created[0].created_with['type'], 2)
+
+    def test_single_flex_type_is_not_asked(self):
+        w = scenario()
+        w.flex_types = [FlexTypeEl('Only', 7)]
+        self._built(w)
+        self.assertEqual([l for l in w.log if l[0] == 'select'], [])
+
+    def test_default_parameter_is_set_on_type_to_gibkiy(self):
+        w = scenario()
+        p = CfgParam(u'Гибкая конфигурация', u'Жорсткий')
+        w.flex_types[0].add(p, 'flexpat')
+        self._built(w, {u'Тип гнучкого': 'Flex Round'})
+        self.assertEqual(p.value, u'Гибкий')
+        self.assertEqual(p.sets, [('Set', u'Гибкий')])
+
+    def test_instance_parameter_wins_over_type_parameter(self):
+        w = scenario()
+        inst, typ = CfgParam(u'Гибкая конфигурация', u'старе'), CfgParam(u'Гибкая конфигурация', u'старе')
+        w.flex_types[0].add(typ, 'flexpat')
+        # екземпляр створюється самою заглушкою; додаємо параметр екземпляру через підміну конструктора FakeFlex
+        FakeFlex_init = FakeFlex.__init__
+
+        def init(self, points, ident):
+            FakeFlex_init(self, points, ident)
+            self.add(inst, 'flexpat')
+        FakeFlex.__init__ = init
+        try:
+            self._built(w, {u'Тип гнучкого': 'Flex Round'})
+        finally:
+            FakeFlex.__init__ = FakeFlex_init
+        self.assertEqual((inst.value, typ.value), (u'Гибкий', u'старе'))
+
+    def test_empty_value_means_do_not_touch_parameter(self):
+        w = scenario()
+        p = CfgParam(u'Гибкая конфигурация', u'Жорсткий')
+        w.flex_types[0].add(p, 'flexpat')
+        self._built(w, {u'Тип гнучкого': 'Flex Round', '_config': {'config_value': ''}})
+        self.assertEqual((p.value, p.sets), (u'Жорсткий', []))
+
+    def test_value_already_equal_is_not_rewritten(self):
+        w = scenario()
+        p = CfgParam(u'Гибкая конфигурация', u'Гибкий')
+        w.flex_types[0].add(p, 'flexpat')
+        self._built(w, {u'Тип гнучкого': 'Flex Round'})
+        self.assertEqual(p.sets, [])
+
+    def test_missing_parameter_does_not_block_building_and_lists_names(self):
+        w = scenario()
+        other = CfgParam(u'Інший параметр', u'1')
+        w.flex_types[0].add(other)                     # інша назва й не вбудований параметр — «Гибкая конфигурация» не знайти
+        f = self._built(w, {u'Тип гнучкого': 'Flex Round'})
+        self.assertEqual(w.tx, ['start', 'commit'])
+        text = self._log_text()
+        self.assertIn(u'параметра «Гибкая конфигурация» (RBS_FLEX_PATTERN_PARAM) немає', text)
+        self.assertIn(u'Інший параметр', text)                                    # перелік параметрів для діагностики
+        self.assertTrue(any(l[0] == 'md' and u'Параметра «Гибкая конфигурация» не знайдено' in l[1] for l in w.log))
+
+    def test_read_only_parameter_is_skipped_with_warning(self):
+        w = scenario()
+        p = CfgParam(u'Гибкая конфигурация', u'Жорсткий', read_only=True)
+        w.flex_types[0].add(p, 'flexpat')
+        self._built(w, {u'Тип гнучкого': 'Flex Round'})
+        self.assertEqual(p.sets, [])
+        self.assertTrue(any(l[0] == 'md' and u'тільки для читання' in l[1] for l in w.log))
+
+    def test_integer_parameter_uses_int_or_value_string(self):
+        w = scenario()
+        p = CfgParam(u'Гибкая конфигурация', 0, storage='i')
+        w.flex_types[0].add(p, 'flexpat')
+        self._built(w, {u'Тип гнучкого': 'Flex Round', '_config': {'config_value': '3'}})
+        self.assertEqual(p.sets, [('Set', 3)])
+        w2 = scenario()
+        p2 = CfgParam(u'Гибкая конфигурация', 0, storage='i')
+        w2.flex_types[0].add(p2, 'flexpat')
+        self._built(w2, {u'Тип гнучкого': 'Flex Round'})                          # «Гибкий» — не число й не варіант
+        self.assertEqual(p2.value, 0)                                              # значення відновлено
+        self.assertTrue(any(l[0] == 'md' and u'не прийнято' in l[1] for l in w2.log))
+
+    def test_parameter_not_accepted_gives_warning_but_still_builds(self):
+        w = scenario()
+        p = CfgParam(u'Гибкая конфигурация', u'Ж', accepts=False)
+        w.flex_types[0].add(p, 'flexpat')
+        self._built(w, {u'Тип гнучкого': 'Flex Round'})
+        self.assertEqual(len(w.created), 1)
+        self.assertTrue(any(l[0] == 'md' and u'не прийнято' in l[1] for l in w.log))
+
+    def test_parameter_exception_never_blocks_building(self):
+        class Boom(CfgParam):
+            def Set(self, v):
+                raise RuntimeError('параметр-збій-5150')
+        w = scenario()
+        p = Boom(u'Гибкая конфигурация', u'Ж')
+        w.flex_types[0].add(p, 'flexpat')
+        self._built(w, {u'Тип гнучкого': 'Flex Round'})
+        self.assertEqual((len(w.created), w.tx), (1, ['start', 'commit']))
+        self.assertIn(u'параметр-збій-5150', self._log_text())
+
+    # ---------- розмір і форма: вікно після вибору елементів ----------
+
+    @staticmethod
+    def _dia(w, which, mm_value):
+        conn = (w.a.MEPModel.ConnectorManager.Connectors[0] if which == 'a' else w.b.ConnectorManager.Connectors[0])
+        conn.Radius = mm_value / 2.0 / 304.8
+        return conn
+
+    @staticmethod
+    def _rect(w, which, width_mm, height_mm, shape='rect'):
+        conn = (w.a.MEPModel.ConnectorManager.Connectors[0] if which == 'a' else w.b.ConnectorManager.Connectors[0])
+        conn.Shape, conn.Width, conn.Height = shape, width_mm / 304.8, height_mm / 304.8
+        return conn
+
+    def _go(self, w, answers=None, **kw):
+        w.picks = [w.a, w.b]
+        run_button(w, answers, **kw)
+        return w.created[0] if w.created else None
+
+    def test_type_window_comes_after_element_selection(self):
+        w = scenario()
+        self._go(w, {u'Тип гнучкого': 'Flex Alu'})
+        kinds = [l[0] for l in w.log if l[0] in ('pick', 'select')]
+        self.assertEqual(kinds, ['pick', 'pick', 'select'])
+
+    def test_same_size_means_no_size_window(self):
+        w = scenario()
+        self._dia(w, 'a', 200)
+        self._dia(w, 'b', 200.2)                           # в межах допуску 0.5 мм
+        self._go(w)
+        self.assertEqual([l for l in w.log if l[0] == 'buildwin'], [])
+
+    def test_different_sizes_show_chips_with_both_sizes(self):
+        w = scenario()
+        self._dia(w, 'a', 200)
+        self._dia(w, 'b', 160)
+        self._go(w)
+        win = [l for l in w.log if l[0] == 'buildwin'][0]
+        self.assertEqual(win[1], [u'1-й: Ø200', u'2-й: Ø160'])
+        self.assertIn(u'розміри різні: Ø200 / Ø160', self._log_text())
+
+    def test_default_chip_is_first_connector_size(self):
+        w = scenario()
+        self._dia(w, 'a', 200)
+        self._dia(w, 'b', 160)
+        f = self._go(w)
+        self.assertAlmostEqual(f.params['diam'].value, 200 / 304.8, places=6)
+        self.assertEqual(w.build_state.chips, [True, False])
+
+    def test_second_chip_selects_second_size(self):
+        w = scenario()
+        self._dia(w, 'a', 200)
+        self._dia(w, 'b', 160)
+        f = self._go(w, {'_build': {'chip': 1}})
+        self.assertAlmostEqual(f.params['diam'].value, 160 / 304.8, places=6)
+        self.assertEqual(w.build_state.chips, [False, True])
+
+    def test_custom_size_from_dropdown_overrides_chips(self):
+        w = scenario()
+        self._dia(w, 'a', 200)
+        self._dia(w, 'b', 160)
+        f = self._go(w, {'_standard_sizes': [(150, True), (160, True), (250, True), (300, False)], '_build': {'custom': 2}})
+        win = [l for l in w.log if l[0] == 'buildwin'][0]
+        self.assertEqual(win[2], [u'Інший розмір…', u'Ø150', u'Ø250'])      # без розмірів чипів і без «не для списків»
+        self.assertAlmostEqual(f.params['diam'].value, 250 / 304.8, places=6)
+        self.assertEqual(w.build_state.chips, [False, False])                # чипи знято
+
+    def test_choosing_chip_resets_custom_dropdown(self):
+        w = scenario()
+        self._dia(w, 'a', 200)
+        self._dia(w, 'b', 160)
+        self._go(w, {'_standard_sizes': [(150, True)], '_build': {'custom': 1, 'chip': 1}})
+        self.assertEqual(w.build_state.custom_index, 0)
+
+    def test_custom_dropdown_disabled_when_no_standard_sizes(self):
+        w = scenario()
+        self._dia(w, 'a', 200)
+        self._dia(w, 'b', 160)
+        self._go(w)
+        win = [l for l in w.log if l[0] == 'buildwin'][0]
+        self.assertEqual((win[2], win[3]), ([u'(інших стандартних розмірів немає)'], False))
+
+    def test_standard_sizes_failure_is_not_critical(self):
+        w = scenario()
+        self._dia(w, 'a', 200)
+        self._dia(w, 'b', 160)
+        f = self._go(w, {'_sizes_crash': True})
+        self.assertIsNotNone(f)
+        self.assertIn(u'налаштування розмірів недоступні', self._log_text())
+
+    def test_closing_size_window_cancels_without_building(self):
+        w = scenario()
+        self._dia(w, 'a', 200)
+        self._dia(w, 'b', 160)
+        w.picks = [w.a, w.b]
+        with self.assertRaises(ExitScript):
+            run_button(w, {'_build': None})
+        self.assertEqual((w.created, w.tx), ([], []))
+
+    def test_type_list_follows_shape_of_chosen_size(self):
+        w = scenario()
+        w.flex_types = [FlexTypeEl('Flex Round', 1, shape='round'), FlexTypeEl('Flex Rect', 2, shape='rect'),
+                        FlexTypeEl('Flex Any', 3)]
+        self._dia(w, 'a', 200)
+        self._rect(w, 'b', 400, 200)
+        self._go(w, {'_build': {'chip': 0}})
+        self.assertEqual(w.build_state.types, ['Flex Any', 'Flex Round'])
+        w2 = scenario()
+        w2.flex_types = list(w.flex_types)
+        self._dia(w2, 'a', 200)
+        self._rect(w2, 'b', 400, 200)
+        f = self._go(w2, {'_build': {'chip': 1}})
+        self.assertEqual(w2.build_state.types, ['Flex Any', 'Flex Rect'])
+        self.assertEqual(w2.build_state.type, 'Flex Any')                      # перший підходящий за алфавітом
+        self.assertAlmostEqual(f.params['w'].value, 400 / 304.8, places=6)
+        self.assertAlmostEqual(f.params['h'].value, 200 / 304.8, places=6)
+        self.assertNotIn('diam', f.params)
+
+    def test_last_type_is_preselected_in_size_window(self):
+        w = scenario()
+        self._dia(w, 'a', 200)
+        self._dia(w, 'b', 160)
+        self._go(w, {'_config': {'flex_type': 'Flex Round'}})
+        self.assertEqual(w.build_state.type, 'Flex Round')
+
+    def test_type_from_size_window_is_used_and_remembered(self):
+        w = scenario()
+        cfg = {}
+        self._dia(w, 'a', 200)
+        self._dia(w, 'b', 160)
+        f = self._go(w, {'_build': {'type': 'Flex Alu'}, '_config': cfg})
+        self.assertEqual(f.created_with['type'], 2)
+        self.assertEqual(cfg['flex_type'], 'Flex Alu')
+
+    def test_rect_same_size_sets_width_and_height(self):
+        w = scenario()
+        self._rect(w, 'a', 400, 200)
+        self._rect(w, 'b', 400, 200)
+        f = self._go(w, {u'Тип гнучкого': 'Flex Alu'})
+        self.assertEqual([l for l in w.log if l[0] == 'buildwin'], [])
+        self.assertAlmostEqual(f.params['w'].value, 400 / 304.8, places=6)
+
+    def test_oval_is_supported_like_rect(self):
+        w = scenario()
+        self._rect(w, 'a', 300, 150, shape='oval')
+        self._rect(w, 'b', 300, 150, shape='oval')
+        f = self._go(w)
+        self.assertAlmostEqual(f.params['h'].value, 150 / 304.8, places=6)
+        self.assertIn(u'овал 300×150', self._log_text())
+
+    def test_same_dimensions_but_different_shape_counts_as_different(self):
+        w = scenario()
+        self._dia(w, 'a', 200)
+        self._rect(w, 'b', 200, 200)
+        self._go(w)
+        self.assertEqual(len([l for l in w.log if l[0] == 'buildwin']), 1)
+
+    def test_no_type_for_the_shape_gives_clear_message_and_no_build(self):
+        w = scenario()
+        w.flex_types = [FlexTypeEl('Flex Round', 1, shape='round'), FlexTypeEl('Flex Round 2', 2, shape='round')]
+        self._rect(w, 'a', 400, 200)
+        self._rect(w, 'b', 400, 200)
+        self._go(w)
+        self.assertEqual(w.created, [])
+        self.assertTrue(any(u'Немає типів гнучкого повітровода для форми «прямокутний»' in a for a in w.alerts))
+
+    def test_unknown_connector_shape_is_not_treated_as_mismatch(self):
+        w = scenario()
+        self._rect(w, 'a', 1, 1, shape='weird')
+        self._rect(w, 'b', 1, 1, shape='weird')
+        f = self._go(w)
+        self.assertEqual([l for l in w.log if l[0] == 'buildwin'], [])
+        self.assertNotIn('diam', f.params)                                    # розмір типу не чіпаємо
+
+    def test_size_window_failure_falls_back_to_lists(self):
+        w = scenario()
+        self._dia(w, 'a', 200)
+        self._dia(w, 'b', 160)
+        f = self._go(w, {'_wpf_crash': True, u'Розмір гнучкого': u'2-й: Ø160', u'Тип гнучкого': 'Flex Alu'})
+        self.assertAlmostEqual(f.params['diam'].value, 160 / 304.8, places=6)
+        self.assertEqual(f.created_with['type'], 2)
+        self.assertIn(u'вікно розміру й типу не вдалося', self._log_text())
+
+    def test_loop_asks_type_once_for_equal_sizes_but_size_window_for_each_mismatch(self):
+        w = self._two_pairs()
+        c, d = w.elements[3], w.elements[4]
+        c.MEPModel.ConnectorManager.Connectors[0].Radius = 0.2
+        d.ConnectorManager.Connectors[0].Radius = 0.2
+        run_button(w, {u'Тип гнучкого': 'Flex Alu'}, loop=True)
+        self.assertEqual(len([l for l in w.log if l[0] == 'select' and u'Тип гнучкого' in l[1]]), 1)   # тип — один раз
+        w2 = self._two_pairs()
+        w2.elements[3].MEPModel.ConnectorManager.Connectors[0].Radius = 0.3
+        w2.elements[4].ConnectorManager.Connectors[0].Radius = 0.1             # друга пара — з різними розмірами
+        run_button(w2, loop=True)
+        self.assertEqual(len([l for l in w2.log if l[0] == 'buildwin']), 1)
+        self.assertEqual(len(w2.created), 2)
+
+    def test_type_choice_asked_again_if_remembered_type_does_not_fit_new_shape(self):
+        w = self._two_pairs()
+        w.flex_types = [FlexTypeEl('Flex Round', 1, shape='round'), FlexTypeEl('Flex Rect', 2, shape='rect')]
+        c, d = w.elements[3], w.elements[4]
+        for conn in (c.MEPModel.ConnectorManager.Connectors[0], d.ConnectorManager.Connectors[0]):
+            conn.Shape, conn.Width, conn.Height = 'rect', 1.0, 0.5
+        run_button(w, loop=True)
+        self.assertEqual([f.created_with['type'] for f in w.created], [1, 2])   # другу пару (прямокутну) — типом Rect
+
+    # ---------- тип з гнучкого повітровода в моделі (налаштування) ----------
+
+    def _sample(self, w, type_name_='Flex Alu', ident=800):
+        el = FlexSample(ident, [t for t in w.flex_types if t.Name == type_name_][0])
+        w.elements[ident] = el
+        return el
+
+    def test_default_is_type_from_list_not_from_model(self):
+        w = scenario()
+        run_button(w, {'_form': {'value': u'Гибкий', 'loop': False}}, path=CONFIG)
+        self.assertFalse(w.form.pick_type)
+
+    def test_settings_window_saves_type_from_model_flag(self):
+        w = scenario()
+        cfg = {}
+        run_button(w, {'_form': {'value': u'Гибкий', 'loop': False, 'pick_type': True}, '_config': cfg}, path=CONFIG)
+        self.assertEqual(cfg['type_from_model'], 'true')
+        w2 = scenario()
+        run_button(w2, {'_form': {'value': u'Гибкий', 'loop': False, 'pick_type': False}, '_config': cfg}, path=CONFIG)
+        self.assertTrue(w2.form.pick_type)                                    # у вікні показано збережене
+        self.assertEqual(cfg['type_from_model'], 'false')
+
+    def test_settings_dialogs_fallback_asks_about_type_from_model(self):
+        w = scenario()
+        cfg = {}
+        run_button(w, {'_wpf_crash': True, '_alert_result': True, '_config': cfg}, path=CONFIG)
+        self.assertEqual((cfg['loop'], cfg['type_from_model']), ('true', 'true'))
+
+    def test_click_on_flex_duct_takes_its_type_without_list(self):
+        w = scenario()
+        sample = self._sample(w, 'Flex Alu')
+        w.picks = [w.a, w.b, sample]
+        run_button(w, {'_config': {'type_from_model': 'true'}})
+        self.assertEqual(w.created[0].created_with['type'], 2)
+        self.assertEqual([l for l in w.log if l[0] == 'select'], [])
+        picks = [l for l in w.log if l[0] == 'pick']
+        self.assertEqual(len(picks), 3)
+        self.assertIn(u'гнучкий повітровод', picks[2][3])
+        self.assertTrue(picks[2][2])                                          # фільтр дозволяє гнучкий
+
+    def test_sample_filter_rejects_everything_but_flex_ducts(self):
+        for cat, expected in (('OST_FlexDuctCurves', True), ('OST_DuctCurves', False), ('OST_PipeCurves', False),
+                              ('OST_DuctFitting', False)):
+            w = scenario()
+            sample = self._sample(w)
+            sample.Category = category(cat)
+            w.picks = [w.a, w.b, sample]
+            run_button(w, {'_config': {'type_from_model': 'true'}})
+            self.assertEqual([l for l in w.log if l[0] == 'pick'][2][2], expected, cat)
+
+    def test_sample_type_is_remembered_as_last(self):
+        w = scenario()
+        cfg = {'type_from_model': 'true'}
+        w.picks = [w.a, w.b, self._sample(w, 'Flex Alu')]
+        run_button(w, {'_config': cfg})
+        self.assertEqual(cfg['flex_type'], 'Flex Alu')
+
+    def test_esc_on_sample_falls_back_to_type_list(self):
+        w = scenario()
+        w.picks = [w.a, w.b, Cancelled]
+        run_button(w, {'_config': {'type_from_model': 'true'}, u'Тип гнучкого': 'Flex Alu'})
+        self.assertEqual(w.created[0].created_with['type'], 2)
+        self.assertEqual(len([l for l in w.log if l[0] == 'select']), 1)
+        self.assertIn(u'зразок типу не вибрано (Esc)', self._log_text())
+
+    def test_sample_with_wrong_shape_type_falls_back_to_list_with_message(self):
+        w = scenario()
+        w.flex_types = [FlexTypeEl('Flex Rect', 1, shape='rect'), FlexTypeEl('Flex Round', 2, shape='round'),
+                        FlexTypeEl('Flex Round 2', 3, shape='round')]
+        w.picks = [w.a, w.b, self._sample(w, 'Flex Rect')]                    # конектори круглі, зразок — прямокутний тип
+        run_button(w, {'_config': {'type_from_model': 'true'}, u'Тип гнучкого': 'Flex Round 2'})
+        self.assertTrue(any(u'не підходить за формою' in a for a in w.alerts))
+        self.assertEqual(w.created[0].created_with['type'], 3)
+
+    def test_sample_asked_once_in_loop_for_equal_sizes(self):
+        w = self._two_pairs()
+        sample = self._sample(w, 'Flex Alu')
+        c, d = w.elements[3], w.elements[4]
+        c.MEPModel.ConnectorManager.Connectors[0].Radius = 0.2
+        d.ConnectorManager.Connectors[0].Radius = 0.2
+        w.picks = [w.a, w.b, sample, c, d, Cancelled]
+        run_button(w, {'_config': {'type_from_model': 'true'}, u'Тип системи': 'Supply Air'}, loop=True)
+        self.assertEqual([f.created_with['type'] for f in w.created], [2, 2])
+        self.assertEqual(len([l for l in w.log if l[0] == 'pick']), 5)       # 2 + зразок + 2
+
+    def test_different_sizes_show_window_at_once_without_asking_for_sample(self):
+        w = scenario()
+        self._dia(w, 'a', 200)
+        self._dia(w, 'b', 160)
+        w.picks = [w.a, w.b, self._sample(w, 'Flex Alu')]
+        run_button(w, {'_config': {'type_from_model': 'true', 'flex_type': 'Flex Round'}})
+        self.assertEqual(len([l for l in w.log if l[0] == 'pick']), 2)         # клік на зразок не запитувався
+        self.assertEqual(len(w.picks), 1)                                      # зразок лишився невикористаним
+        self.assertEqual(len([l for l in w.log if l[0] == 'buildwin']), 1)     # вікно — одразу після вибору елементів
+        self.assertEqual(w.build_state.type, 'Flex Round')                     # тип — останній використаний, не зразок
+        kinds = [l[0] for l in w.log if l[0] in ('pick', 'buildwin')]
+        self.assertEqual(kinds, ['pick', 'pick', 'buildwin'])
+
+    def test_equal_sizes_still_ask_for_sample_when_enabled(self):
+        w = scenario()
+        w.picks = [w.a, w.b, self._sample(w, 'Flex Alu')]
+        run_button(w, {'_config': {'type_from_model': 'true'}})
+        self.assertEqual(len([l for l in w.log if l[0] == 'pick']), 3)
+        self.assertEqual([l for l in w.log if l[0] == 'buildwin'], [])
+
+    def test_type_from_model_off_never_asks_for_sample(self):
+        w = scenario()
+        w.picks = [w.a, w.b]
+        run_button(w)
+        self.assertEqual(len([l for l in w.log if l[0] == 'pick']), 2)
+
+    # ---------- швидкість і компактне вікно вибору типу ----------
+
+    def test_type_picker_is_small_window_sorted_with_last_preselected(self):
+        w = scenario()
+        w.flex_types.append(FlexTypeEl('Aaa', 3))
+        w.picks = [w.a, w.b]
+        run_button(w, {'_config': {'flex_type': 'Flex Alu'}})
+        shown = [l for l in w.log if l[0] == 'select'][0]
+        self.assertEqual((shown[2], shown[3]), (['Aaa', 'Flex Alu', 'Flex Round'], 'Flex Alu'))
+
+    def test_enter_without_changes_uses_preselected_type(self):
+        w = scenario()
+        w.picks = [w.a, w.b]
+        run_button(w, {'_config': {'flex_type': 'Flex Round'}})
+        self.assertEqual(w.created[0].created_with['type'], 1)
+
+    def test_closing_type_picker_cancels_the_button(self):
+        w = scenario()
+        w.picks = [w.a, w.b]
+        with self.assertRaises(ExitScript):
+            run_button(w, {u'Тип гнучкого': None})
+        self.assertEqual(w.created, [])
+
+    def test_type_picker_falls_back_to_standard_list_if_window_fails(self):
+        w = scenario()
+        w.picks = [w.a, w.b]
+        run_button(w, {'_wpf_crash': True, u'Тип гнучкого': 'Flex Alu'})
+        self.assertEqual(w.created[0].created_with['type'], 2)
+        self.assertIn(u'компактне вікно вибору не вдалося', self._log_text())
+
+    def test_system_type_choice_uses_the_same_small_window(self):
+        w = scenario()
+        w.a.MEPModel.ConnectorManager.Connectors[0].MEPSystem = None
+        w.picks = [w.a, w.b]
+        run_button(w, {u'Тип системи': 'Return Air'})
+        self.assertEqual(w.created[0].created_with['system'], 11)
+        self.assertTrue(any(l[0] == 'select' and u'Тип системи' in l[1] for l in w.log))
+
+    def test_filter_computes_allowed_categories_once_not_per_hover(self):
+        w = self._two_pairs()
+        run_button(w, loop=True)                          # 4 вибори = 4 виклики AllowElement
+        self.assertEqual(len([l for l in w.log if l[0] == 'pick']), 4)
+        self.assertLessEqual(w.category_reads, 10)        # лише один прохід по 5 категоріях (hasattr + getattr)
+
+    def test_success_does_not_open_output_window(self):
+        w = scenario()
+        w.flex_types[0].add(EnumParam(u'Гибкая конфигурация', [u'Жорсткий', u'Гибкий']), 'flexpat')
+        w.picks = [w.a, w.b]
+        run_button(w, {u'Тип гнучкого': 'Flex Round'})
+        self.assertEqual([l for l in w.log if l[0] == 'md'], [])           # print_md відкрив би вікно виводу pyRevit
+        self.assertIn(u'створено гнучких повітроводів: 1', self._log_text())
+
+    def _enum_project(self, w, **kw):
+        p = EnumParam(u'Гибкая конфигурация', [u'Жорсткий', u'Гибкий', u'Спіральний'], value=0, **kw)
+        w.flex_types[0].add(p, 'flexpat')
+        return p
+
+    def test_first_run_probes_then_saves_number_for_next_time(self):
+        w = scenario()
+        p = self._enum_project(w)
+        cfg = {}
+        self._built(w, {u'Тип гнучкого': 'Flex Round', '_config': cfg})
+        self.assertEqual(p.value, 1)
+        self.assertEqual(cfg['config_value_num'], '1')
+
+    def test_known_number_is_used_without_probing(self):
+        w = scenario()
+        p = self._enum_project(w)
+        self._built(w, {u'Тип гнучкого': 'Flex Round', '_config': {'config_value_num': '1'}})
+        self.assertEqual(p.value, 1)
+        self.assertEqual(p.sets, [('Set', 1)])                              # один запис, без перебору
+        self.assertEqual(len([l for l in w.log if l[0] == 'regenerate']), 1)
+
+    def test_stale_number_falls_back_to_probing(self):
+        w = scenario()
+        p = self._enum_project(w)
+        cfg = {'config_value_num': '2'}                                     # 2 = «Спіральний», а потрібен «Гибкий»
+        self._built(w, {u'Тип гнучкого': 'Flex Round', '_config': cfg})
+        self.assertEqual(p.value, 1)
+        self.assertEqual(cfg['config_value_num'], '1')                      # виправлено
+
+    def test_loop_probes_only_once_for_several_ducts(self):
+        w = self._two_pairs()
+        p = self._enum_project(w)
+        run_button(w, {u'Тип гнучкого': 'Flex Round'}, loop=True)
+        self.assertEqual(len(w.created), 2)
+        set_calls = len([x for x in p.sets])
+        # перебір (до ~7 записів) лише для першого воздуховода; другий — один запис: загалом помітно менше 2 перебирань
+        self.assertLess(set_calls, 12)
+
+    def test_settings_window_saves_number_of_chosen_option(self):
+        w = scenario()
+        self._project_with_enum(w)
+        cfg = {}
+        run_button(w, {'_form': {'value': u'Спіральний', 'loop': False}, '_config': cfg}, path=CONFIG)
+        self.assertEqual((cfg['config_value'], cfg['config_value_num']), (u'Спіральний', '2'))
+
+    def test_settings_window_without_known_options_clears_number(self):
+        w = scenario()
+        cfg = {'config_value_num': '1'}
+        run_button(w, {'_form': {'value': u'Гибкий', 'loop': False}, '_config': cfg}, path=CONFIG)
+        self.assertEqual(cfg['config_value_num'], '')
+
+    # ---------- «Гибкая конфигурация» = RBS_FLEX_PATTERN_PARAM: пошук і значення-список ----------
+
+    def test_builtin_parameter_is_found_even_if_its_name_is_localized_differently(self):
+        w = scenario()
+        p = CfgParam(u'Flex pattern', u'Rigid')                       # назва іншою мовою, але це той самий BuiltInParameter
+        w.flex_types[0].add(p, 'flexpat')
+        self._built(w, {u'Тип гнучкого': 'Flex Round'})
+        self.assertEqual(p.value, u'Гибкий')
+
+    def test_parameter_found_by_name_when_builtin_missing(self):
+        w = scenario()
+        p = CfgParam(u'Гибкая конфигурация', u'Жорсткий')
+        w.flex_types[0].add(p)                                        # без BuiltInParameter — лише за назвою
+        self._built(w, {u'Тип гнучкого': 'Flex Round'})
+        self.assertEqual(p.value, u'Гибкий')
+
+    def test_enum_parameter_text_is_mapped_to_number(self):
+        w = scenario()
+        p = EnumParam(u'Гибкая конфигурация', [u'Жорсткий', u'Гибкий', u'Спіральний'], value=0)
+        w.flex_types[0].add(p, 'flexpat')
+        self._built(w, {u'Тип гнучкого': 'Flex Round'})
+        self.assertEqual((p.value, p.AsValueString()), (1, u'Гибкий'))
+
+    def test_enum_parameter_lenient_set_still_maps_text(self):
+        w = scenario()
+        p = EnumParam(u'Гибкая конфигурация', [u'Жорсткий', u'Гибкий'], value=0, lenient=True)
+        w.flex_types[0].add(p, 'flexpat')
+        self._built(w, {u'Тип гнучкого': 'Flex Round'})
+        self.assertEqual(p.value, 1)
+        self.assertEqual(len(p.sets) < 20, True)                       # зупинились після кількох промахів, а не на 32
+
+    def test_enum_text_not_among_options_leaves_old_value_and_warns(self):
+        w = scenario()
+        p = EnumParam(u'Гибкая конфигурация', [u'Жорсткий', u'Спіральний'], value=1)
+        w.flex_types[0].add(p, 'flexpat')
+        self._built(w, {u'Тип гнучкого': 'Flex Round'})
+        self.assertEqual(p.value, 1)                                  # як було
+        self.assertEqual(len(w.created), 1)
+        self.assertTrue(any(l[0] == 'md' and u'не прийнято' in l[1] for l in w.log))
+
+    # ---------- вікно налаштувань ----------
+
+    def _project_with_enum(self, w, options=(u'Жорсткий', u'Гибкий', u'Спіральний'), on_instance=True, **kw):
+        p = EnumParam(u'Гибкая конфигурация', list(options), value=2, **kw)
+        if on_instance:
+            inst = FakeFlex([XYZ(0, 0, 0), XYZ(1, 0, 0)], 777)
+            inst.add(p, 'flexpat')
+            w.flex_instances.append(inst)
+        else:
+            w.flex_types[0].add(p, 'flexpat')
+        return p
+
+    def test_options_without_duplicates_when_out_of_range_numbers_repeat_last_text(self):
+        w = scenario()
+        self._project_with_enum(w, clamp=True)
+        run_button(w, {'_form': {'value': u'Гибкий', 'loop': False}}, path=CONFIG)
+        self.assertEqual(w.form.options, [NO, u'Жорсткий', u'Гибкий', u'Спіральний'])
+
+    def test_config_window_lists_parameter_options_and_defaults_to_gibkiy(self):
+        w = scenario()
+        self._project_with_enum(w)
+        run_button(w, {'_form': {'value': u'Гибкий', 'loop': False}}, path=CONFIG)
+        self.assertEqual(w.form.options, [NO, u'Жорсткий', u'Гибкий', u'Спіральний'])
+        self.assertEqual((w.form.value, w.form.loop), (u'Гибкий', False))
+
+    def test_reading_options_does_not_change_the_project(self):
+        w = scenario()
+        p = self._project_with_enum(w)
+        run_button(w, {'_form': {'value': u'Гибкий', 'loop': False}}, path=CONFIG)
+        self.assertEqual(p.value, 2)                                  # значення відновлено
+        self.assertEqual(w.tx, ['start', 'rollback'])                 # транзакцію відкотено, не закомічено
+
+    def test_options_are_read_from_flex_type_when_no_instances(self):
+        w = scenario()
+        self._project_with_enum(w, on_instance=False)
+        run_button(w, {'_form': {'value': u'Гибкий', 'loop': False}}, path=CONFIG)
+        self.assertEqual(w.form.options, [NO, u'Жорсткий', u'Гибкий', u'Спіральний'])
+
+    def test_no_options_available_window_still_opens_with_default_text(self):
+        w = scenario()                                                # у проєкті немає параметра
+        run_button(w, {'_form': {'value': u'Гибкий', 'loop': False}}, path=CONFIG)
+        self.assertEqual((w.form.options, w.form.value), ([NO, u'Гибкий'], u'Гибкий'))        # своє вводити не можна
+        self.assertEqual(w.tx, [])
+
+    def test_option_reading_failure_is_not_critical(self):
+        class Boom(EnumParam):
+            def AsInteger(self):
+                raise RuntimeError('збій-читання-8812')
+
+            def Set(self, v):
+                raise RuntimeError('збій-запису-8812')
+        w = scenario()
+        inst = FakeFlex([XYZ(0, 0, 0), XYZ(1, 0, 0)], 777)
+        inst.add(Boom(u'Гибкая конфигурация', [u'a']), 'flexpat')
+        w.flex_instances.append(inst)
+        run_button(w, {'_form': {'value': u'Гибкий', 'loop': False}}, path=CONFIG)
+        self.assertEqual(w.form.options, [NO, u'Гибкий'])             # вікно все одно відкрилось
+
+    def test_config_window_default_value_is_gibkiy_and_loop_off(self):
+        w = scenario()
+        run_button(w, {'_form': {'value': u'Гибкий', 'loop': False}}, path=CONFIG)
+        self.assertEqual((w.form.value, w.form.loop), (u'Гибкий', False))
+
+    def test_config_window_saves_value_and_loop(self):
+        w = scenario()
+        cfg = {}
+        run_button(w, {'_form': {'value': u' Спіральний ', 'loop': True}, '_config': cfg}, path=CONFIG)
+        self.assertEqual((cfg['config_value'], cfg['loop']), (u'Спіральний', 'true'))
+
+    def test_config_window_reflects_saved_values_and_can_turn_loop_off(self):
+        w = scenario()
+        cfg = {'loop': 'true', 'config_value': u'З'}
+        run_button(w, {'_form': {'value': u'З', 'loop': False}, '_config': cfg}, path=CONFIG)
+        self.assertEqual((w.form.value, w.form.loop), (u'З', True))
+        self.assertEqual(cfg['loop'], 'false')
+
+    def test_config_window_closed_changes_nothing(self):
+        w = scenario()
+        cfg = {'config_value': u'З'}
+        with self.assertRaises(ExitScript):
+            run_button(w, {'_config': cfg}, path=CONFIG)
+        self.assertEqual(cfg, {'config_value': u'З'})
+
+    def test_config_window_wpf_failure_falls_back_to_options_list(self):
+        w = scenario()
+        self._project_with_enum(w)
+        cfg = {}
+        run_button(w, {'_wpf_crash': True, u'Гибкая конфигурация': u'Спіральний', '_alert_result': True, '_config': cfg},
+                   path=CONFIG)
+        self.assertEqual((cfg['config_value'], cfg['loop']), (u'Спіральний', 'true'))
+        self.assertEqual([l[2] for l in w.log if l[0] == 'select'][0][0], u'Гибкий')   # поточне — першим
+        self.assertIn(u'XAML не розібрано', self._log_text())
+
+    def test_config_dialogs_without_options_offer_saved_value_only(self):
+        w = scenario()
+        cfg = {}
+        run_button(w, {'_no_wpf': True, '_alert_result': False, '_config': cfg}, path=CONFIG)
+        self.assertEqual([l[2] for l in w.log if l[0] == 'select'][0], [u'Гибкий', NO])
+        self.assertEqual((cfg['config_value'], cfg['loop']), (u'Гибкий', 'false'))
+
+    def test_config_dialogs_cancel_changes_nothing(self):
+        w = scenario()
+        cfg = {}
+        with self.assertRaises(ExitScript):
+            run_button(w, {'_no_wpf': True, u'Гибкая конфигурация': None, '_config': cfg}, path=CONFIG)
+        self.assertEqual(cfg, {})
+
+    def test_config_dialogs_no_change_item_saves_empty_value(self):
+        w = scenario()
+        cfg = {}
+        run_button(w, {'_no_wpf': True, u'Гибкая конфигурация': NO, '_alert_result': False, '_config': cfg}, path=CONFIG)
+        self.assertEqual(cfg['config_value'], u'')
+
+    def test_window_cannot_take_free_text(self):
+        with io.open(CONFIG, encoding='utf-8') as f:
+            text = f.read()
+        self.assertIn('IsEditable="False"', text)
+        self.assertNotIn('.Text', text.split('def main')[0].split('def ask_with_window')[1])   # значення — SelectedItem, не Text
+
+    def test_window_no_change_item_saves_empty_value(self):
+        w = scenario()
+        cfg = {'config_value': u'Гибкий'}
+        run_button(w, {'_form': {'value': NO, 'loop': False}, '_config': cfg}, path=CONFIG)
+        self.assertEqual(cfg['config_value'], u'')
+
+    def test_window_selects_saved_option_empty_means_no_change_and_stale_falls_back_to_gibkiy(self):
+        for saved, shown in ((u'Спіральний', u'Спіральний'), (u'', NO), (u'Немає такого', u'Гибкий')):
+            w = scenario()
+            self._project_with_enum(w)
+            run_button(w, {'_form': {'value': shown, 'loop': False}, '_config': {'config_value': saved}}, path=CONFIG)
+            self.assertEqual(w.form.value, shown, saved)
+
+    # ---------- установка: папка lib ----------
+
+    def _isolated_imports(self):
+        """Прибрати lib зі sys.path і наші модулі з кешу (як чистий запуск у pyRevit); повертає функцію відновлення."""
+        saved_path = list(sys.path)
+        saved_mods = dict((k, v) for k, v in sys.modules.items() if k.startswith('hvac_'))
+        sys.path[:] = [p for p in sys.path if os.path.abspath(p) != os.path.abspath(LIB)]
+        for k in saved_mods:
+            del sys.modules[k]
+
+        def restore():
+            sys.path[:] = saved_path
+            for k in [k for k in sys.modules if k.startswith('hvac_')]:
+                del sys.modules[k]
+            sys.modules.update(saved_mods)
+        return restore
+
+    def test_works_even_if_pyrevit_did_not_put_lib_on_sys_path(self):
+        restore = self._isolated_imports()
+        try:
+            w = scenario()
+            w.picks = [w.a, w.b]
+            run_button(w)                                    # lib знаходиться за розташуванням самого script.py
+            self.assertEqual(len(w.created), 1)
+        finally:
+            restore()
+
+    def test_missing_lib_file_gives_clear_message_with_path(self):
+        ext = os.path.abspath(os.path.join(HERE, '..', 'HVAC.extension'))
+        tmp = tempfile.mkdtemp()
+        copy = os.path.join(tmp, 'HVAC.extension')
+        shutil.copytree(ext, copy)
+        os.remove(os.path.join(copy, 'lib', 'hvac_log.py'))             # «не докопіювали» файл
+        script_copy = os.path.join(copy, 'HVAC.tab', 'Systems.panel', 'QuickFlexConnect.pushbutton', 'script.py')
+        restore = self._isolated_imports()
+        try:
+            w = scenario()
+            with self.assertRaises(ExitScript):
+                run_button(w, path=script_copy)
+        finally:
+            restore()
+        self.assertEqual(len(w.alerts), 1)
+        self.assertIn('hvac_log.py', w.alerts[0])
+        self.assertIn(os.path.join(copy, 'lib'), w.alerts[0])           # показано, де шукав
+
+    # ---------- журнал ----------
+
+    def _log_text(self):
+        with io.open(hvac_log.log_path(), encoding='utf-8') as f:
+            return f.read()
+
+    def test_normal_run_leaves_trail_in_log(self):
+        w = scenario()
+        w.picks = [w.a, w.b]
+        run_button(w)
+        text = self._log_text()
+        self.assertIn(u'[QuickFlexConnect] === запуск', text)
+        self.assertIn(u'вибрано:', text)
+        self.assertIn(u'пара конекторів:', text)
+        self.assertIn(u'FlexDuct.Create: варіант з дотичними', text)
+        self.assertIn(u'створено, id', text)
+
+    def test_old_api_fallback_is_logged(self):
+        w = scenario(tangent_api=False)
+        w.picks = [w.a, w.b]
+        run_button(w)
+        text = self._log_text()
+        self.assertIn(u'недоступний', text)
+        self.assertIn(u'варіант з 4 точками', text)
+
+    def test_build_error_is_logged_with_traceback(self):
+        w = scenario()
+        w.b.ConnectorManager.Connectors[0].Origin = XYZ(0, 0, 0.0012)
+        w.picks = [w.a, w.b]
+        run_button(w)
+        text = self._log_text()
+        self.assertIn(u'транзакцію відкотено', text)
+        self.assertIn(u'надто близько', text)
+        self.assertTrue(any(hvac_log.log_path() in a for a in w.alerts))      # шлях до журналу в повідомленні
+
+    def test_unexpected_error_is_logged_and_reported_instead_of_bare_crash(self):
+        class BadType(object):
+            Id = EId(7)
+
+            @property
+            def Name(self):
+                raise RuntimeError('несподіванка-9001')
+
+        w = scenario()
+        w.flex_types = [BadType()]
+        run_button(w)                                        # не кидає: помилку обробив журнал
+        self.assertIn(u'RuntimeError: несподіванка-9001', self._log_text())
+        self.assertTrue(any(hvac_log.log_path() in a for a in w.alerts))
+        self.assertTrue(any(l[0] == 'md' and 'несподіванка-9001' in l[1] for l in w.log))
+
+    def test_cancel_by_esc_is_logged_without_error(self):
+        w = scenario()
+        w.picks = [Cancelled]
+        run_button(w)
+        self.assertIn(u'вибір скасовано (Esc)', self._log_text())
+
     def test_selection_is_whole_element_not_a_point(self):
         w = scenario()
         w.picks = [w.a, w.b]
@@ -437,8 +1508,9 @@ class FlexButtonTests(unittest.TestCase):
         self.assertEqual([p[1] for p in picks], ['element', 'element'])
 
     def test_selection_filter_allows_only_duct_categories(self):
-        allowed = ('OST_DuctCurves', 'OST_DuctAccessory', 'OST_DuctFitting', 'OST_MechanicalEquipment')
-        denied = ('OST_FlexDuctCurves', 'OST_PipeCurves', 'OST_DuctTerminal')
+        allowed = ('OST_DuctCurves', 'OST_DuctAccessory', 'OST_DuctFitting', 'OST_MechanicalEquipment',
+                   'OST_DuctTerminal')
+        denied = ('OST_FlexDuctCurves', 'OST_PipeCurves')
         result = {}
         for name in allowed + denied:
             w1 = scenario()
@@ -448,6 +1520,17 @@ class FlexButtonTests(unittest.TestCase):
             run_button(w1)
             result[name] = [l for l in w1.log if l[0] == 'pick'][0][2]
         self.assertEqual(result, dict([(n, True) for n in allowed] + [(n, False) for n in denied]))
+
+    def test_air_terminal_can_be_connected(self):
+        w = scenario()
+        terminal = FakeInstance(70, [Connector(None, XYZ(3, 0, 1), XYZ(-1, 0, 0), radius=0.2)], level=EId(100),
+                                cat='OST_DuctTerminal')
+        w.elements[70] = terminal
+        w.picks = [w.a, terminal]
+        run_button(w)
+        self.assertEqual(len(w.created), 1)
+        self.assertEqual(w.created[0].created_with['points'][1], (3, 0, 1))
+        self.assertTrue([l for l in w.log if l[0] == 'pick'][1][2])           # фільтр його дозволяє
 
     def test_filter_rejects_element_without_free_connectors(self):
         w = scenario()
@@ -509,16 +1592,16 @@ class FlexButtonTests(unittest.TestCase):
     def test_remembers_last_choice(self):
         w = scenario()
         cfg = {}
-        w.picks = [w.a, w.b, Cancelled]
-        run_button(w, {u'Тип гнучкого': 'Flex Alu', '_config': cfg})
-        self.assertEqual(cfg.get('flex_type'), 'Flex Alu')
+        w.picks = [w.a, w.b]
+        run_button(w, {u'Тип гнучкого': 'Flex Round', '_config': cfg})
+        self.assertEqual(cfg.get('flex_type'), 'Flex Round')
         w2 = scenario()
-        w2.picks = [w2.a, w2.b, Cancelled]
-        run_button(w2, {'_config': cfg})
-        self.assertEqual([l for l in w2.log if l[0] == 'select' and u'Тип гнучкого' in l[1]], [])     # вже запам'ятано
-        self.assertEqual(w2.created[0].created_with['type'], 2)
-
-    # ---------- режим циклу: за замовчуванням вимкнено ----------
+        w2.picks = [w2.a, w2.b]
+        run_button(w2, {'_config': cfg})                                      # у вікні нічого не міняємо: просто Enter
+        shown = [l for l in w2.log if l[0] == 'select' and u'Тип гнучкого' in l[1]]
+        self.assertEqual(len(shown), 1)                                      # тип обирається при кожному запуску
+        self.assertEqual(shown[0][3], 'Flex Round')                          # останній обраний уже підставлено
+        self.assertEqual(w2.created[0].created_with['type'], 1)
 
     def _two_pairs(self):
         w = scenario()
@@ -556,77 +1639,6 @@ class FlexButtonTests(unittest.TestCase):
 
     # ---------- тип гнучкого повітровода з налаштувань ----------
 
-    def test_default_type_is_gibkiy_without_asking(self):
-        w = scenario()
-        w.flex_types.append(types.SimpleNamespace(Name=u'Гибкий', Id=EId(3)))
-        w.picks = [w.a, w.b]
-        run_button(w)
-        self.assertEqual(w.created[0].created_with['type'], 3)
-        self.assertEqual([l for l in w.log if l[0] == 'select'], [])
-
-    def test_type_from_settings_wins_over_default(self):
-        w = scenario()
-        w.flex_types.append(types.SimpleNamespace(Name=u'Гибкий', Id=EId(3)))
-        w.picks = [w.a, w.b]
-        run_button(w, {'_config': {'flex_type': 'Flex Alu'}})
-        self.assertEqual(w.created[0].created_with['type'], 2)
-
-    def test_type_match_ignores_case(self):
-        w = scenario()
-        w.flex_types.append(types.SimpleNamespace(Name=u'ГИБКИЙ', Id=EId(3)))
-        w.picks = [w.a, w.b]
-        run_button(w)
-        self.assertEqual(w.created[0].created_with['type'], 3)
-
-    def test_asks_list_when_configured_type_missing(self):
-        w = scenario()                                      # типів «Гибкий» немає
-        w.picks = [w.a, w.b]
-        run_button(w, {'_config': {'flex_type': u'Немає такого'}})
-        self.assertEqual(len([l for l in w.log if l[0] == 'select']), 1)
-
-    def _comp(self, w, name):
-        return [c for c in w.form.components if c.name == name][0]
-
-    def test_config_window_defaults_are_gibkiy_and_loop_off(self):
-        w = scenario()
-        w.flex_types.append(types.SimpleNamespace(Name=u'Гибкий', Id=EId(3)))
-        run_button(w, {'_form': {'flex_type': u'Гибкий', 'loop': False}}, path=CONFIG)
-        self.assertEqual(self._comp(w, 'flex_type').kw['default'], u'Гибкий')
-        self.assertIn(u'Гибкий', self._comp(w, 'flex_type').kw['options'])
-        self.assertFalse(self._comp(w, 'loop').kw['default'])
-
-    def test_config_window_saves_type_and_loop(self):
-        w = scenario()
-        cfg = {}
-        run_button(w, {'_form': {'flex_type': 'Flex Alu', 'loop': True}, '_config': cfg}, path=CONFIG)
-        self.assertEqual((cfg['flex_type'], cfg['loop']), ('Flex Alu', 'true'))
-        w2 = scenario()                                    # основна кнопка бере збережене: тип Alu, цикл увімкнено
-        c = FakeInstance(3, [Connector(None, XYZ(0, 5, 0), XYZ(0, 0, 1))], level=EId(100))
-        d = FakeDuct(4, [Connector(None, XYZ(3, 5, 1), XYZ(-1, 0, 0))], level=EId(100))
-        w2.elements.update({3: c, 4: d})
-        w2.picks = [w2.a, w2.b, c, d, Cancelled]
-        run_button(w2, {'_config': cfg})
-        self.assertEqual([f.created_with['type'] for f in w2.created], [2, 2])
-
-    def test_config_window_turns_loop_off_again(self):
-        w = scenario()
-        cfg = {'loop': 'true'}
-        run_button(w, {'_form': {'flex_type': 'Flex Round', 'loop': False}, '_config': cfg}, path=CONFIG)
-        self.assertEqual(cfg['loop'], 'false')
-        self.assertTrue(self._comp(w, 'loop').kw['default'])        # стан у вікні відображає збережений
-    def test_config_window_closed_changes_nothing(self):
-        w = scenario()
-        cfg = {'flex_type': 'Flex Round'}
-        with self.assertRaises(ExitScript):
-            run_button(w, {'_config': cfg}, path=CONFIG)
-        self.assertEqual(cfg, {'flex_type': 'Flex Round'})
-
-    def test_config_button_without_types_aborts(self):
-        w = scenario()
-        w.flex_types = []
-        with self.assertRaises(ExitScript):
-            run_button(w, path=CONFIG)
-
 
 class SettingsModuleTests(unittest.TestCase):
     class Cfg(object):
@@ -662,21 +1674,22 @@ class SettingsModuleTests(unittest.TestCase):
         hvac_flex_settings.set_loop(c, False)
         self.assertFalse(hvac_flex_settings.is_loop(c))
 
-    def test_flex_type_default_and_roundtrip(self):
-        c = self.Cfg()
-        self.assertEqual(hvac_flex_settings.get_flex_type(c), u'Гибкий')
-        hvac_flex_settings.set_flex_type(c, u'Alu')
-        self.assertEqual(hvac_flex_settings.get_flex_type(c), u'Alu')
-        self.assertEqual(hvac_flex_settings.get_flex_type(self.Broken()), u'Гибкий')
 
-    def test_find_type_index(self):
-        f = hvac_flex_settings.find_type_index
-        names = [u'Alu', u'гибкий', u'Гибкий воздуховод', u'Гибкий']
-        self.assertEqual(f(names, u'Гибкий'), 3)                 # точний збіг важливіший
-        self.assertEqual(f([u'ГИБКИЙ', u'Alu'], u'Гибкий'), 0)   # без регістру
-        self.assertEqual(f([u'Alu', u'Гибкий воздуховод'], u'Гибкий'), 1)    # за початком назви
-        self.assertIsNone(f([u'Alu'], u'Гибкий'))
-        self.assertIsNone(f([u'Alu'], u''))
+class ConfigSettingsTests(unittest.TestCase):
+    def test_defaults(self):
+        c = SettingsModuleTests.Cfg()
+        self.assertEqual(hvac_flex_settings.get_config_value(c), u'Гибкий')
+        self.assertEqual(hvac_flex_settings.BUILTIN_PARAM, 'RBS_FLEX_PATTERN_PARAM')
+
+    def test_roundtrip_strips_spaces_and_keeps_empty(self):
+        c = SettingsModuleTests.Cfg()
+        hvac_flex_settings.set_config_value(c, u' Знач ')
+        self.assertEqual(hvac_flex_settings.get_config_value(c), u'Знач')
+        hvac_flex_settings.set_config_value(c, u'')
+        self.assertEqual(hvac_flex_settings.get_config_value(c), u'')
+
+    def test_read_error_gives_default(self):
+        self.assertEqual(hvac_flex_settings.get_config_value(SettingsModuleTests.Broken()), u'Гибкий')
 
 
 class FlexButtonSourceTests(unittest.TestCase):
