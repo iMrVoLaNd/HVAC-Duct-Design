@@ -9,7 +9,23 @@ __doc__ = (u'Обираєте два елементи (повітровод, а�
 # Сумісно з IronPython 3.4 (pyRevit) і CPython: без f-рядків та сучасного синтаксису.
 import uuid
 
-import hvac_log
+import os
+import sys
+
+# Папка lib розширення (HVAC.extension/lib). Зазвичай pyRevit додає її сам; додаємо явно про всяк випадок.
+try:
+    _LIB = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', 'lib'))
+    if _LIB not in sys.path:
+        sys.path.insert(0, _LIB)
+except Exception:
+    _LIB = u'?'
+try:
+    import hvac_log
+except ImportError:
+    from pyrevit import forms
+    forms.alert(u'Не знайдено файл lib\\hvac_log.py.\nСкопіюйте в розширення ВСЮ папку HVAC.extension разом із lib '
+                u'(усі файли) і перезавантажте pyRevit.\n\nШукав тут: {0}'.format(_LIB),
+                title=u'HVAC', exitscript=True)
 TOOL = 'flex_between'
 
 try:

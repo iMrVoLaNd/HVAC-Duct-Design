@@ -6,6 +6,7 @@
 але ловить помилки в логіці (вибір елементів і конекторів, система, дотичні, з'єднання, цикл, скасування).
 """
 import io
+import shutil
 import math
 import os
 import re
@@ -440,6 +441,51 @@ class FlexButtonTests(unittest.TestCase):
             run_button(w)
             spaces.append([l[4] for l in w.log if l[0] == 'pick'][0])
         self.assertTrue(all(spaces) and spaces[0] != spaces[1], spaces)
+
+    # ---------- установка: папка lib ----------
+
+    def _isolated_imports(self):
+        """Прибрати lib зі sys.path і наші модулі з кешу (як чистий запуск у pyRevit); повертає функцію відновлення."""
+        saved_path = list(sys.path)
+        saved_mods = dict((k, v) for k, v in sys.modules.items() if k.startswith('hvac_'))
+        sys.path[:] = [p for p in sys.path if os.path.abspath(p) != os.path.abspath(LIB)]
+        for k in saved_mods:
+            del sys.modules[k]
+
+        def restore():
+            sys.path[:] = saved_path
+            for k in [k for k in sys.modules if k.startswith('hvac_')]:
+                del sys.modules[k]
+            sys.modules.update(saved_mods)
+        return restore
+
+    def test_works_even_if_pyrevit_did_not_put_lib_on_sys_path(self):
+        restore = self._isolated_imports()
+        try:
+            w = scenario()
+            w.picks = [w.a, w.b]
+            run_button(w)                                    # lib знаходиться за розташуванням самого script.py
+            self.assertEqual(len(w.created), 1)
+        finally:
+            restore()
+
+    def test_missing_lib_file_gives_clear_message_with_path(self):
+        ext = os.path.abspath(os.path.join(HERE, '..', 'HVAC.extension'))
+        tmp = tempfile.mkdtemp()
+        copy = os.path.join(tmp, 'HVAC.extension')
+        shutil.copytree(ext, copy)
+        os.remove(os.path.join(copy, 'lib', 'hvac_log.py'))             # «не докопіювали» файл
+        script_copy = os.path.join(copy, 'HVAC.tab', 'Systems.panel', 'FlexBetween.pushbutton', 'script.py')
+        restore = self._isolated_imports()
+        try:
+            w = scenario()
+            with self.assertRaises(ExitScript):
+                run_button(w, path=script_copy)
+        finally:
+            restore()
+        self.assertEqual(len(w.alerts), 1)
+        self.assertIn('hvac_log.py', w.alerts[0])
+        self.assertIn(os.path.join(copy, 'lib'), w.alerts[0])           # показано, де шукав
 
     # ---------- журнал ----------
 
