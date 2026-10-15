@@ -3,8 +3,9 @@ __title__ = u'Гнучкий\nміж конекторами'
 __author__ = u'HVAC-Duct-Design'
 __doc__ = (u'Обираєте два елементи (повітровод, арматуру, фасонну частину, обладнання) — між їхніми найближчими вільними '
            u'конекторами будується гнучкий повітровод '
-           u'типу з налаштувань, кінці з\'єднуються з конекторами. Shift+клік — вікно налаштувань: тип '
-           u'(за замовчуванням «Гибкий») і галочка «Цикл» (за замовчуванням вимкнено).')
+           u'обраного типу (тип обирається після натискання кнопки), кінці з\'єднуються з конекторами. '
+           u'Shift+клік — вікно налаштувань: параметр «Гибкая конфигурация» (за замовчуванням «Гибкий») '
+           u'і галочка «Цикл» (за замовчуванням вимкнено).')
 
 # Сумісно з IronPython 3.4 (pyRevit) і CPython: без f-рядків та сучасного синтаксису.
 import uuid
@@ -290,6 +291,77 @@ def connect_ends(flex, c0, c1):
         ends = [e for e in ends if e is not mine]
 
 
+def param_text(p):
+    """Поточне значення параметра текстом (для порівняння й журналу)."""
+    try:
+        if p.StorageType == DB.StorageType.String:
+            return p.AsString() or u''
+        return p.AsValueString() or u''
+    except Exception:
+        return u''
+
+
+def set_param_text(p, value):
+    """Записати значення з тексту; повертає True, якщо вдалося."""
+    st = p.StorageType
+    if st == DB.StorageType.String:
+        return bool(p.Set(value))
+    if st == DB.StorageType.Integer:
+        try:
+            return bool(p.Set(int(value)))
+        except ValueError:
+            return bool(p.SetValueString(value))
+    if st == DB.StorageType.Double:
+        return bool(p.SetValueString(value))
+    return False            # ElementId та інше — не підтримуємо
+
+
+def dump_parameter_names(flex, type_el):
+    """У журнал: які параметри є в екземплярі й типі — щоб було видно, як насправді називається потрібний."""
+    for label, el in ((u'екземпляр', flex), (u'тип', type_el)):
+        try:
+            names = sorted(p.Definition.Name for p in el.Parameters)
+            hvac_log.log(TOOL, u'параметри ({0}): {1}'.format(label, u'; '.join(names)))
+        except Exception as ex:
+            hvac_log.log(TOOL, u'параметри ({0}) не прочитано: {1}'.format(label, ex))
+
+
+def apply_config_param(flex, state):
+    """Записати «Гибкая конфигурация» у щойно створений гнучкий повітровод. Ніколи не ламає побудову."""
+    name, value = state['param'], state['value']
+    if not value:
+        return
+    try:
+        type_el = doc.GetElement(flex.GetTypeId())
+        for label, el in ((u'екземпляр', flex), (u'тип', type_el)):
+            p = el.LookupParameter(name)
+            if p is None:
+                continue
+            if p.IsReadOnly:
+                hvac_log.log(TOOL, u'параметр «{0}» ({1}) тільки для читання — пропущено'.format(name, label))
+                state['warnings'].append(u'Параметр «{0}» тільки для читання.'.format(name))
+                return
+            before = param_text(p)
+            if before == value:
+                hvac_log.log(TOOL, u'«{0}» ({1}) вже = «{2}»'.format(name, label, value))
+                return
+            if set_param_text(p, value):
+                hvac_log.log(TOOL, u'«{0}» ({1}): «{2}» → «{3}»'.format(name, label, before, value))
+            else:
+                hvac_log.log(TOOL, u'«{0}» ({1}): значення «{2}» не прийнято'.format(name, label, value))
+                state['warnings'].append(u'Параметр «{0}»: значення «{1}» не прийнято.'.format(name, value))
+            return
+        hvac_log.log(TOOL, u'параметра «{0}» немає ні в екземплярі, ні в типі'.format(name))
+        state['warnings'].append(u'Параметра «{0}» не знайдено (перевірте назву у вікні налаштувань; '
+                                 u'список параметрів — у журналі).'.format(name))
+        if not state['dumped']:
+            state['dumped'] = True
+            dump_parameter_names(flex, type_el)
+    except Exception as ex:
+        hvac_log.log_exception(TOOL, u'запис параметра «{0}»'.format(name))
+        state['warnings'].append(u'Не вдалося записати параметр «{0}»: {1}'.format(name, ex))
+
+
 def build_one(c0, c1, flex_type, system_state):
     system_id = system_type_id_from(c0) or system_type_id_from(c1) or system_state.get('id')
     if system_id is None:
@@ -305,6 +377,7 @@ def build_one(c0, c1, flex_type, system_state):
     try:
         flex = create_flex(c0, c1, flex_type.Id, system_id, level_id)
         apply_size(flex, c0)
+        apply_config_param(flex, system_state)
         connect_ends(flex, c0, c1)
         t.Commit()
         hvac_log.log(TOOL, u'створено, id {0}'.format(eid_int(flex.Id)))
@@ -320,18 +393,16 @@ def main():
     if not types:
         forms.alert(u'У проєкті немає типів гнучких повітроводів.', title=u'Гнучкий повітровод', exitscript=True)
     cfg = script.get_config(CONFIG_SECTION)
-    names = [type_name(t) for t in types]
-    # Тип — з налаштувань (Shift+клік по кнопці), за замовчуванням «Гибкий»; немає такого — питаємо зі списку.
-    idx = hvac_flex_settings.find_type_index(names, hvac_flex_settings.get_flex_type(cfg))
-    if idx is not None:
-        flex_type = types[idx]
-    else:
-        flex_type = choose_from(types, names, u'Тип гнучкого повітровода:', hvac_flex_settings.FLEX_TYPE_KEY)
+    # Тип гнучкого повітровода — вибір після натискання кнопки (останній обраний стоїть першим; один тип — без питання).
+    flex_type = choose_from(types, [type_name(t) for t in types], u'Тип гнучкого повітровода:', 'flex_type')
+    config_param = hvac_flex_settings.get_config_param(cfg)
+    config_value = hvac_flex_settings.get_config_value(cfg)
     # Режим циклу — галочка у вікні налаштувань (Shift+клік), за замовчуванням вимкнено.
     loop = hvac_flex_settings.is_loop(cfg)
-    hvac_log.log(TOOL, u'тип «{0}», цикл {1}, журнал {2}'.format(type_name(flex_type), loop, hvac_log.log_path()))
+    hvac_log.log(TOOL, u'тип «{0}», «{1}» = «{2}», цикл {3}, журнал {4}'.format(
+        type_name(flex_type), config_param, config_value, loop, hvac_log.log_path()))
     tail = u'Esc — завершити' if loop else u'Esc — скасувати'
-    system_state = {'id': None}
+    system_state = {'id': None, 'param': config_param, 'value': config_value, 'warnings': [], 'dumped': False}
     made = 0
     while True:
         try:
@@ -366,6 +437,8 @@ def main():
                         title=u'Гнучкий повітровод')
         if not loop:
             break
+    for w in sorted(set(system_state['warnings'])):
+        output.print_md(u'* **Увага:** {0}'.format(w))
     if made:
         output.print_md(u'**Гнучких повітроводів створено: {0}** (тип «{1}»)'.format(made, type_name(flex_type)))
 

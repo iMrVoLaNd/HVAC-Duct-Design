@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """Вікно налаштувань кнопки «Гнучкий між конекторами» (відкривається Shift+кліком по кнопці):
-тип гнучкого повітровода (за замовчуванням «Гибкий») і перемикач «Цикл» (за замовчуванням вимкнено)."""
+параметр «Гибкая конфигурация» (за замовчуванням значення «Гибкий») і перемикач «Цикл» (за замовчуванням вимкнено).
+Тип гнучкого повітровода тут не налаштовується: його обирають після натискання кнопки."""
 # Сумісно з IronPython 3.4 (pyRevit) і CPython: без f-рядків та сучасного синтаксису.
 import os
 import sys
@@ -25,7 +26,6 @@ try:
     from pyrevit import revit, DB, forms, script
 
     import hvac_flex_settings
-    import hvac_revit
 except Exception:
     hvac_log.log_exception(TOOL, u'імпорт модулів')
     raise
@@ -35,18 +35,16 @@ CONFIG_SECTION = hvac_flex_settings.SECTION
 TITLE = u'Гнучкий повітровод — налаштування'
 
 
-def type_name(t):
-    return hvac_revit.element_name(DB, t)
-
-
 XAML = u"""
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Гнучкий повітровод — налаштування" Width="420" SizeToContent="Height"
+        Title="Гнучкий повітровод — налаштування" Width="440" SizeToContent="Height"
         WindowStartupLocation="CenterScreen" ResizeMode="NoResize" ShowInTaskbar="False">
   <StackPanel Margin="16">
-    <TextBlock Text="Тип гнучкого повітровода:" Margin="0,0,0,6"/>
-    <ComboBox x:Name="flex_type" Margin="0,0,0,14"/>
+    <TextBlock Text="Параметр гнучкого повітровода:" Margin="0,0,0,4"/>
+    <TextBox x:Name="param_name" Margin="0,0,0,10"/>
+    <TextBlock Text="Значення (порожньо — параметр не чіпати):" Margin="0,0,0,4"/>
+    <TextBox x:Name="param_value" Margin="0,0,0,14"/>
     <CheckBox x:Name="loop" Content="Цикл: будувати пари поспіль, поки не натиснуто Esc" Margin="0,0,0,16"/>
     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
       <Button x:Name="save_btn" Content="Зберегти" Width="100" Margin="0,0,8,0" IsDefault="True"/>
@@ -57,23 +55,22 @@ XAML = u"""
 """
 
 
-def ask_with_window(names, default, loop):
-    """Власне WPF-вікно: список типів, галочка «Цикл», кнопки «Зберегти» / «Скасувати».
-    Повертає (тип, цикл) або None, якщо вікно закрито без збереження."""
+def ask_with_window(name, value, loop):
+    """Власне WPF-вікно: назва параметра, його значення, галочка «Цикл», кнопки «Зберегти» / «Скасувати».
+    Повертає (назва, значення, цикл) або None, якщо вікно закрито без збереження."""
 
     class SettingsWindow(forms.WPFWindow):
         def __init__(self):
             forms.WPFWindow.__init__(self, XAML, literal_string=True)
             self.result = None
-            combo = self.FindName('flex_type')
-            for n in names:
-                combo.Items.Add(n)
-            combo.SelectedIndex = names.index(default)
+            self.FindName('param_name').Text = name
+            self.FindName('param_value').Text = value
             self.FindName('loop').IsChecked = bool(loop)
             self.FindName('save_btn').Click += self.on_save
 
         def on_save(self, sender, args):
-            self.result = (self.FindName('flex_type').SelectedItem, bool(self.FindName('loop').IsChecked))
+            self.result = (self.FindName('param_name').Text or u'', self.FindName('param_value').Text or u'',
+                           bool(self.FindName('loop').IsChecked))
             self.Close()
 
     win = SettingsWindow()
@@ -81,40 +78,37 @@ def ask_with_window(names, default, loop):
     return win.result
 
 
-def ask_with_dialogs(names, default, loop):
+def ask_with_dialogs(name, value, loop):
     """Запасний варіант на стандартних діалогах pyRevit — якщо власне вікно не вдалося створити."""
-    ordered = [default] + [n for n in names if n != default]
-    picked = forms.SelectFromList.show(ordered, title=u'Тип гнучкого повітровода (зараз: «{0}»)'.format(default),
-                                       button_name=u'Далі', multiselect=False)
-    if not picked:
+    new_name = forms.ask_for_string(default=name, prompt=u'Назва параметра гнучкого повітровода:', title=TITLE)
+    if new_name is None:
+        return None
+    new_value = forms.ask_for_string(default=value, prompt=u'Значення (порожньо — параметр не чіпати):', title=TITLE)
+    if new_value is None:
         return None
     loop_on = forms.alert(u'Режим «Цикл» (пари поспіль, поки не натиснуто Esc).\nЗараз: {0}.\n\nУвімкнути?'
                           .format(u'увімкнено' if loop else u'вимкнено'), title=TITLE, yes=True, no=True)
-    return picked, bool(loop_on)
+    return new_name, new_value, bool(loop_on)
 
 
 def main():
     cfg = script.get_config(CONFIG_SECTION)
-    names = sorted(type_name(t) for t in DB.FilteredElementCollector(doc).OfClass(DB.Mechanical.FlexDuctType))
-    if not names:
-        forms.alert(u'У проєкті немає типів гнучких повітроводів.', title=TITLE, exitscript=True)
-    current = hvac_flex_settings.get_flex_type(cfg)
-    idx = hvac_flex_settings.find_type_index(names, current)
-    default = names[idx if idx is not None else 0]
+    name = hvac_flex_settings.get_config_param(cfg)
+    value = hvac_flex_settings.get_config_value(cfg)
     loop = hvac_flex_settings.is_loop(cfg)
 
     try:
-        result = ask_with_window(names, default, loop)
+        result = ask_with_window(name, value, loop)
     except Exception:
         hvac_log.log_exception(TOOL, u'вікно налаштувань (WPF) не вдалося, беру стандартні діалоги')
-        result = ask_with_dialogs(names, default, loop)
+        result = ask_with_dialogs(name, value, loop)
     if result is None:                        # вікно закрито без збереження — нічого не змінюємо
         hvac_log.log(TOOL, u'налаштування не змінено')
         script.exit()
-    hvac_flex_settings.set_flex_type(cfg, result[0])
-    hvac_flex_settings.set_loop(cfg, result[1])
+    hvac_flex_settings.set_config(cfg, result[0], result[1])
+    hvac_flex_settings.set_loop(cfg, result[2])
     script.save_config()
-    hvac_log.log(TOOL, u'збережено: тип «{0}», цикл {1}'.format(result[0], result[1]))
+    hvac_log.log(TOOL, u'збережено: «{0}» = «{1}», цикл {2}'.format(result[0], result[1], result[2]))
 
 
 hvac_log.run(TOOL, main, doc)

@@ -25,38 +25,34 @@ def set_loop(cfg, value):
     cfg.set_option(LOOP_KEY, 'true' if value else 'false')
 
 
-# ---------- тип гнучкого повітровода ----------
+# ---------- параметр «Гибкая конфигурация» ----------
+# Після побудови гнучкого повітровода кнопка записує значення в цей параметр (спершу шукає його в екземплярі,
+# потім у типі). Порожнє значення — параметр не чіпати. Тип гнучкого повітровода обирається при кожному запуску кнопки.
 
-FLEX_TYPE_KEY = 'flex_type'
-DEFAULT_FLEX_TYPE = u'Гибкий'         # назва типу за замовчуванням (як у шаблоні проєкту)
+CONFIG_PARAM_KEY = 'config_param'
+CONFIG_VALUE_KEY = 'config_value'
+DEFAULT_CONFIG_PARAM = u'Гибкая конфигурация'
+DEFAULT_CONFIG_VALUE = u'Гибкий'
 
 
-def get_flex_type(cfg):
-    """Назва типу з налаштувань; якщо нічого не збережено — DEFAULT_FLEX_TYPE."""
+def _text_option(cfg, key, default):
     try:
-        value = cfg.get_option(FLEX_TYPE_KEY, u'')
+        value = cfg.get_option(key, None)
     except Exception:
-        value = u''
-    return value if value else DEFAULT_FLEX_TYPE
+        value = None
+    return default if value is None else value
 
 
-def set_flex_type(cfg, name):
-    cfg.set_option(FLEX_TYPE_KEY, name)
+def get_config_param(cfg):
+    """Ім'я параметра; порожнє в налаштуваннях = значення за замовчуванням."""
+    return _text_option(cfg, CONFIG_PARAM_KEY, DEFAULT_CONFIG_PARAM).strip() or DEFAULT_CONFIG_PARAM
 
 
-def find_type_index(names, wanted):
-    """Індекс типу за назвою: точний збіг, потім без урахування регістру, потім за початком назви.
-    Не знайдено — None (тоді кнопка покаже список)."""
-    if not wanted:
-        return None
-    for i, n in enumerate(names):
-        if n == wanted:
-            return i
-    low = wanted.strip().lower()
-    for i, n in enumerate(names):
-        if n.strip().lower() == low:
-            return i
-    for i, n in enumerate(names):
-        if n.strip().lower().startswith(low):
-            return i
-    return None
+def get_config_value(cfg):
+    """Значення параметра; НЕ підставляємо default для порожнього (порожнє = «не чіпати параметр»)."""
+    return _text_option(cfg, CONFIG_VALUE_KEY, DEFAULT_CONFIG_VALUE).strip()
+
+
+def set_config(cfg, name, value):
+    cfg.set_option(CONFIG_PARAM_KEY, name.strip())
+    cfg.set_option(CONFIG_VALUE_KEY, value.strip())

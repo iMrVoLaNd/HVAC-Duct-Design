@@ -140,8 +140,62 @@ class Param(object):
         self.value = v
 
 
-class FakeFlex(object):
+class CfgParam(object):
+    """Параметр з іменем («Гибкая конфигурация»): значення, тип зберігання, прапорець «лише читання»."""
+
+    def __init__(self, name, value, storage='s', read_only=False, accepts=True):
+        self.Definition = types.SimpleNamespace(Name=name)
+        self.value, self.StorageType, self.IsReadOnly, self.accepts = value, storage, read_only, accepts
+        self.sets = []
+
+    def AsString(self):
+        return self.value
+
+    def AsValueString(self):
+        return str(self.value)
+
+    def Set(self, v):
+        self.sets.append(('Set', v))
+        if self.accepts:
+            self.value = v
+        return self.accepts
+
+    def SetValueString(self, v):
+        self.sets.append(('SetValueString', v))
+        if self.accepts:
+            self.value = v
+        return self.accepts
+
+
+class HasParams(object):
+    def __init__(self, *params):
+        self.cfg_params = dict((p.Definition.Name, p) for p in params)
+
+    def LookupParameter(self, name):
+        return self.cfg_params.get(name)
+
+    @property
+    def Parameters(self):
+        return list(self.cfg_params.values())
+
+
+class FlexTypeEl(HasParams):
+    def __init__(self, name, ident, *params):
+        HasParams.__init__(self, *params)
+        self.Name, self.Id = name, EId(ident)
+
+
+class TypeRef(EId):
+    """ElementId типу, який «знає» свій елемент (щоб doc.GetElement(flex.GetTypeId()) працював у заглушці)."""
+
+    def __init__(self, el):
+        EId.__init__(self, el.Id.Value)
+        self.el = el
+
+
+class FakeFlex(HasParams):
     def __init__(self, points, ident):
+        HasParams.__init__(self)
         self.Id = EId(ident)
         self.params = {}
         self.ConnectorManager = types.SimpleNamespace(Connectors=ConnSet([
@@ -156,7 +210,7 @@ class World(object):
 
     def __init__(self, tangent_api=True):
         self.elements = {}
-        self.flex_types = [types.SimpleNamespace(Name='Flex Round', Id=EId(1)), types.SimpleNamespace(Name='Flex Alu', Id=EId(2))]
+        self.flex_types = [FlexTypeEl('Flex Round', 1), FlexTypeEl('Flex Alu', 2)]
         self.system_types = [types.SimpleNamespace(Name='Supply Air', Id=EId(10)), types.SimpleNamespace(Name='Return Air', Id=EId(11))]
         self.levels = [types.SimpleNamespace(Name='L1', Id=EId(100), Elevation=0.0), types.SimpleNamespace(Name='L2', Id=EId(101), Elevation=10.0)]
         self.created, self.log, self.tangent_api, self.next_id = [], [], tangent_api, 900
@@ -171,6 +225,7 @@ def run_button(world, answers=None, loop=False, path=None):
     DB.XYZ = XYZ
     DB.BuiltInCategory = types.SimpleNamespace(**CATS)
     DB.Domain, DB.ConnectorType = Domain, CType
+    DB.StorageType = types.SimpleNamespace(String='s', Integer='i', Double='d', ElementId='e')
     DB.ConnectorProfileType = types.SimpleNamespace(Round='round', Rectangular='rect')
     DB.BuiltInParameter = types.SimpleNamespace(RBS_CURVE_DIAMETER_PARAM='diam', RBS_CURVE_WIDTH_PARAM='w', RBS_CURVE_HEIGHT_PARAM='h')
 
@@ -195,6 +250,7 @@ def run_button(world, answers=None, loop=False, path=None):
                 (pts,), tangents = rest, None
             world.next_id += 1
             f = FakeFlex(list(pts), world.next_id)
+            f.GetTypeId = lambda: TypeRef([t for t in world.flex_types if t.Id.Value == type_id.Value][0])
             f.created_with = dict(system=system_id.Value, type=type_id.Value, level=level_id.Value,
                                   points=[p.t() for p in pts], tangents=tangents)
             world.created.append(f)
@@ -240,6 +296,8 @@ def run_button(world, answers=None, loop=False, path=None):
         ActiveView = types.SimpleNamespace(GenLevel=None)
 
         def GetElement(self, eid):
+            if hasattr(eid, 'el'):
+                return eid.el
             return world.elements[eid.Value if hasattr(eid, 'Value') else eid]
 
     doc = Doc()
@@ -284,21 +342,8 @@ def run_button(world, answers=None, loop=False, path=None):
             self.handlers.append(h)
             return self
 
-    class Items(list):
-        def Add(self, x):
-            self.append(x)
-
-    class Combo(object):
-        def __init__(self):
-            self.Items, self.SelectedItem, self._i = Items(), None, -1
-
-        @property
-        def SelectedIndex(self):
-            return self._i
-
-        @SelectedIndex.setter
-        def SelectedIndex(self, i):
-            self._i, self.SelectedItem = i, self.Items[i]
+    class TextBox(object):
+        Text = u''
 
     class Check(object):
         IsChecked = False
@@ -313,8 +358,11 @@ def run_button(world, answers=None, loop=False, path=None):
         def __init__(self, xaml, literal_string=False, **kw):
             if answers.get('_wpf_crash'):
                 raise RuntimeError('XAML не розібрано')
-            assert literal_string and 'x:Name="flex_type"' in xaml
-            self.ctl = {'flex_type': Combo(), 'loop': Check(), 'save_btn': Button(), 'cancel_btn': Button()}
+            for name in ('param_name', 'param_value', 'loop', 'save_btn', 'cancel_btn'):
+                assert 'x:Name="%s"' % name in xaml, name
+            assert literal_string
+            self.ctl = {'param_name': TextBox(), 'param_value': TextBox(), 'loop': Check(),
+                        'save_btn': Button(), 'cancel_btn': Button()}
             self.closed = False
 
         def FindName(self, name):
@@ -324,16 +372,22 @@ def run_button(world, answers=None, loop=False, path=None):
             self.closed = True
 
         def ShowDialog(self):
-            combo, loop = self.ctl['flex_type'], self.ctl['loop']
-            world.form = types.SimpleNamespace(options=list(combo.Items), selected=combo.SelectedItem,
-                                               loop=loop.IsChecked)
+            c = self.ctl
+            world.form = types.SimpleNamespace(name=c['param_name'].Text, value=c['param_value'].Text,
+                                               loop=c['loop'].IsChecked)
             reply = answers.get('_form')              # None — вікно закрито без збереження
             if reply is not None:
-                combo.SelectedItem, loop.IsChecked = reply['flex_type'], reply['loop']
-                for h in self.ctl['save_btn'].Click.handlers:
+                c['param_name'].Text, c['param_value'].Text = reply['name'], reply['value']
+                c['loop'].IsChecked = reply['loop']
+                for h in c['save_btn'].Click.handlers:
                     h(None, None)
 
-    forms = types.SimpleNamespace(alert=alert, SelectFromList=SelectFromList)
+    def ask_for_string(default=None, prompt=None, title=None):
+        world.log.append(('ask', prompt, default))
+        vals = answers.get('_ask_values')
+        return vals.pop(0) if vals is not None else default
+
+    forms = types.SimpleNamespace(alert=alert, SelectFromList=SelectFromList, ask_for_string=ask_for_string)
     if not answers.get('_no_wpf'):
         forms.WPFWindow = WPFWindow
 
@@ -497,10 +551,174 @@ class FlexButtonTests(unittest.TestCase):
         self.assertEqual(len(w.created), 1)
         self.assertNotIn(u'GetValue', self._log_text())
 
-    def test_config_window_lists_type_names(self):
+    # ---------- параметр «Гибкая конфигурация» ----------
+
+    def _built(self, w, answers=None, **kw):
+        w.picks = [w.a, w.b]
+        run_button(w, answers, **kw)
+        return w.created[0]
+
+    def test_type_is_chosen_after_button_press_every_time(self):
         w = scenario()
-        run_button(w, {'_form': {'flex_type': 'Flex Alu', 'loop': False}}, path=CONFIG)
-        self.assertEqual(w.form.options, ['Flex Alu', 'Flex Round'])
+        self._built(w, {u'Тип гнучкого': 'Flex Alu'})
+        self.assertEqual([l[1] for l in w.log if l[0] == 'select'], [u'Тип гнучкого повітровода:'])
+        self.assertEqual(w.created[0].created_with['type'], 2)
+
+    def test_single_flex_type_is_not_asked(self):
+        w = scenario()
+        w.flex_types = [FlexTypeEl('Only', 7)]
+        self._built(w)
+        self.assertEqual([l for l in w.log if l[0] == 'select'], [])
+
+    def test_default_parameter_is_set_on_type_to_gibkiy(self):
+        w = scenario()
+        p = CfgParam(u'Гибкая конфигурация', u'Жорсткий')
+        w.flex_types[0].cfg_params[p.Definition.Name] = p
+        self._built(w, {u'Тип гнучкого': 'Flex Round'})
+        self.assertEqual(p.value, u'Гибкий')
+        self.assertEqual(p.sets, [('Set', u'Гибкий')])
+
+    def test_instance_parameter_wins_over_type_parameter(self):
+        w = scenario()
+        inst, typ = CfgParam(u'Гибкая конфигурация', u'старе'), CfgParam(u'Гибкая конфигурация', u'старе')
+        w.flex_types[0].cfg_params[typ.Definition.Name] = typ
+        # екземпляр створюється самою заглушкою; додаємо параметр екземпляру через підміну конструктора FakeFlex
+        FakeFlex_init = FakeFlex.__init__
+
+        def init(self, points, ident):
+            FakeFlex_init(self, points, ident)
+            self.cfg_params[inst.Definition.Name] = inst
+        FakeFlex.__init__ = init
+        try:
+            self._built(w, {u'Тип гнучкого': 'Flex Round'})
+        finally:
+            FakeFlex.__init__ = FakeFlex_init
+        self.assertEqual((inst.value, typ.value), (u'Гибкий', u'старе'))
+
+    def test_value_and_name_come_from_settings(self):
+        w = scenario()
+        p = CfgParam(u'Моя конфігурація', u'x')
+        w.flex_types[0].cfg_params[p.Definition.Name] = p
+        cfg = {'config_param': u'Моя конфігурація', 'config_value': u'Спіральний'}
+        self._built(w, {u'Тип гнучкого': 'Flex Round', '_config': cfg})
+        self.assertEqual(p.value, u'Спіральний')
+
+    def test_empty_value_means_do_not_touch_parameter(self):
+        w = scenario()
+        p = CfgParam(u'Гибкая конфигурация', u'Жорсткий')
+        w.flex_types[0].cfg_params[p.Definition.Name] = p
+        self._built(w, {u'Тип гнучкого': 'Flex Round', '_config': {'config_value': ''}})
+        self.assertEqual((p.value, p.sets), (u'Жорсткий', []))
+
+    def test_value_already_equal_is_not_rewritten(self):
+        w = scenario()
+        p = CfgParam(u'Гибкая конфигурация', u'Гибкий')
+        w.flex_types[0].cfg_params[p.Definition.Name] = p
+        self._built(w, {u'Тип гнучкого': 'Flex Round'})
+        self.assertEqual(p.sets, [])
+
+    def test_missing_parameter_does_not_block_building_and_lists_names(self):
+        w = scenario()
+        other = CfgParam(u'Інший параметр', u'1')
+        w.flex_types[0].cfg_params[other.Definition.Name] = other
+        f = self._built(w, {u'Тип гнучкого': 'Flex Round'})
+        self.assertEqual(w.tx, ['start', 'commit'])
+        text = self._log_text()
+        self.assertIn(u'параметра «Гибкая конфигурация» немає', text)
+        self.assertIn(u'Інший параметр', text)                                    # перелік параметрів для діагностики
+        self.assertTrue(any(l[0] == 'md' and u'Параметра «Гибкая конфигурация» не знайдено' in l[1] for l in w.log))
+
+    def test_read_only_parameter_is_skipped_with_warning(self):
+        w = scenario()
+        p = CfgParam(u'Гибкая конфигурация', u'Жорсткий', read_only=True)
+        w.flex_types[0].cfg_params[p.Definition.Name] = p
+        self._built(w, {u'Тип гнучкого': 'Flex Round'})
+        self.assertEqual(p.sets, [])
+        self.assertTrue(any(l[0] == 'md' and u'тільки для читання' in l[1] for l in w.log))
+
+    def test_integer_parameter_uses_int_or_value_string(self):
+        w = scenario()
+        p = CfgParam(u'Гибкая конфигурация', 0, storage='i')
+        w.flex_types[0].cfg_params[p.Definition.Name] = p
+        self._built(w, {u'Тип гнучкого': 'Flex Round', '_config': {'config_value': '3'}})
+        self.assertEqual(p.sets, [('Set', 3)])
+        w2 = scenario()
+        p2 = CfgParam(u'Гибкая конфигурация', 0, storage='i')
+        w2.flex_types[0].cfg_params[p2.Definition.Name] = p2
+        self._built(w2, {u'Тип гнучкого': 'Flex Round'})                          # «Гибкий» — не число
+        self.assertEqual(p2.sets, [('SetValueString', u'Гибкий')])
+
+    def test_parameter_not_accepted_gives_warning_but_still_builds(self):
+        w = scenario()
+        p = CfgParam(u'Гибкая конфигурация', u'Ж', accepts=False)
+        w.flex_types[0].cfg_params[p.Definition.Name] = p
+        self._built(w, {u'Тип гнучкого': 'Flex Round'})
+        self.assertEqual(len(w.created), 1)
+        self.assertTrue(any(l[0] == 'md' and u'не прийнято' in l[1] for l in w.log))
+
+    def test_parameter_exception_never_blocks_building(self):
+        class Boom(CfgParam):
+            def Set(self, v):
+                raise RuntimeError('параметр-збій-5150')
+        w = scenario()
+        p = Boom(u'Гибкая конфигурация', u'Ж')
+        w.flex_types[0].cfg_params[p.Definition.Name] = p
+        self._built(w, {u'Тип гнучкого': 'Flex Round'})
+        self.assertEqual((len(w.created), w.tx), (1, ['start', 'commit']))
+        self.assertIn(u'параметр-збій-5150', self._log_text())
+
+    # ---------- вікно налаштувань ----------
+
+    def test_config_window_shows_defaults_gibkaya_konfiguratsiya_and_loop_off(self):
+        w = scenario()
+        run_button(w, {'_form': {'name': u'Гибкая конфигурация', 'value': u'Гибкий', 'loop': False}}, path=CONFIG)
+        self.assertEqual((w.form.name, w.form.value, w.form.loop), (u'Гибкая конфигурация', u'Гибкий', False))
+
+    def test_config_window_has_no_flex_type_list(self):
+        with io.open(CONFIG, encoding='utf-8') as f:
+            text = f.read()
+        self.assertNotIn('FlexDuctType', text)
+
+    def test_config_window_saves_everything(self):
+        w = scenario()
+        cfg = {}
+        run_button(w, {'_form': {'name': u' Моя ', 'value': u'Інше ', 'loop': True}, '_config': cfg}, path=CONFIG)
+        self.assertEqual((cfg['config_param'], cfg['config_value'], cfg['loop']), (u'Моя', u'Інше', 'true'))
+
+    def test_config_window_reflects_saved_values_and_can_turn_loop_off(self):
+        w = scenario()
+        cfg = {'loop': 'true', 'config_param': u'П', 'config_value': u'З'}
+        run_button(w, {'_form': {'name': u'П', 'value': u'З', 'loop': False}, '_config': cfg}, path=CONFIG)
+        self.assertTrue(w.form.loop)
+        self.assertEqual(cfg['loop'], 'false')
+
+    def test_config_window_closed_changes_nothing(self):
+        w = scenario()
+        cfg = {'config_value': u'З'}
+        with self.assertRaises(ExitScript):
+            run_button(w, {'_config': cfg}, path=CONFIG)
+        self.assertEqual(cfg, {'config_value': u'З'})
+
+    def test_config_window_wpf_failure_falls_back_to_dialogs_and_is_logged(self):
+        w = scenario()
+        cfg = {}
+        run_button(w, {'_wpf_crash': True, '_ask_values': [u'Назва', u'Значення'], '_alert_result': True,
+                       '_config': cfg}, path=CONFIG)
+        self.assertEqual((cfg['config_param'], cfg['config_value'], cfg['loop']), (u'Назва', u'Значення', 'true'))
+        self.assertIn(u'XAML не розібрано', self._log_text())
+
+    def test_config_works_when_forms_has_no_wpfwindow_attribute(self):
+        w = scenario()
+        cfg = {}
+        run_button(w, {'_no_wpf': True, '_ask_values': [u'Н', u''], '_alert_result': False, '_config': cfg}, path=CONFIG)
+        self.assertEqual((cfg['config_param'], cfg['config_value'], cfg['loop']), (u'Н', u'', 'false'))
+
+    def test_config_dialogs_cancel_changes_nothing(self):
+        w = scenario()
+        cfg = {}
+        with self.assertRaises(ExitScript):
+            run_button(w, {'_no_wpf': True, '_ask_values': [None], '_config': cfg}, path=CONFIG)
+        self.assertEqual(cfg, {})
 
     # ---------- установка: папка lib ----------
 
@@ -603,19 +821,6 @@ class FlexButtonTests(unittest.TestCase):
         run_button(w)
         self.assertIn(u'вибір скасовано (Esc)', self._log_text())
 
-    def test_config_window_wpf_failure_falls_back_to_dialogs_and_is_logged(self):
-        w = scenario()
-        cfg = {}
-        run_button(w, {'_wpf_crash': True, u'Тип гнучкого': 'Flex Alu', '_alert_result': True, '_config': cfg}, path=CONFIG)
-        self.assertEqual((cfg['flex_type'], cfg['loop']), ('Flex Alu', 'true'))
-        self.assertIn(u'XAML не розібрано', self._log_text())
-
-    def test_config_works_when_forms_has_no_wpfwindow_attribute(self):
-        w = scenario()
-        cfg = {}
-        run_button(w, {'_no_wpf': True, u'Тип гнучкого': 'Flex Round', '_alert_result': False, '_config': cfg}, path=CONFIG)
-        self.assertEqual((cfg['flex_type'], cfg['loop']), ('Flex Round', 'false'))
-
     def test_selection_is_whole_element_not_a_point(self):
         w = scenario()
         w.picks = [w.a, w.b]
@@ -702,7 +907,9 @@ class FlexButtonTests(unittest.TestCase):
         w2 = scenario()
         w2.picks = [w2.a, w2.b, Cancelled]
         run_button(w2, {'_config': cfg})
-        self.assertEqual([l for l in w2.log if l[0] == 'select' and u'Тип гнучкого' in l[1]], [])     # вже запам'ятано
+        shown = [l for l in w2.log if l[0] == 'select' and u'Тип гнучкого' in l[1]]
+        self.assertEqual(len(shown), 1)                                      # тип обирається при кожному запуску
+        self.assertEqual(shown[0][2][0], 'Flex Alu')                         # останній обраний — першим у списку
         self.assertEqual(w2.created[0].created_with['type'], 2)
 
     # ---------- режим циклу: за замовчуванням вимкнено ----------
@@ -743,75 +950,6 @@ class FlexButtonTests(unittest.TestCase):
 
     # ---------- тип гнучкого повітровода з налаштувань ----------
 
-    def test_default_type_is_gibkiy_without_asking(self):
-        w = scenario()
-        w.flex_types.append(types.SimpleNamespace(Name=u'Гибкий', Id=EId(3)))
-        w.picks = [w.a, w.b]
-        run_button(w)
-        self.assertEqual(w.created[0].created_with['type'], 3)
-        self.assertEqual([l for l in w.log if l[0] == 'select'], [])
-
-    def test_type_from_settings_wins_over_default(self):
-        w = scenario()
-        w.flex_types.append(types.SimpleNamespace(Name=u'Гибкий', Id=EId(3)))
-        w.picks = [w.a, w.b]
-        run_button(w, {'_config': {'flex_type': 'Flex Alu'}})
-        self.assertEqual(w.created[0].created_with['type'], 2)
-
-    def test_type_match_ignores_case(self):
-        w = scenario()
-        w.flex_types.append(types.SimpleNamespace(Name=u'ГИБКИЙ', Id=EId(3)))
-        w.picks = [w.a, w.b]
-        run_button(w)
-        self.assertEqual(w.created[0].created_with['type'], 3)
-
-    def test_asks_list_when_configured_type_missing(self):
-        w = scenario()                                      # типів «Гибкий» немає
-        w.picks = [w.a, w.b]
-        run_button(w, {'_config': {'flex_type': u'Немає такого'}})
-        self.assertEqual(len([l for l in w.log if l[0] == 'select']), 1)
-
-    def test_config_window_defaults_are_gibkiy_and_loop_off(self):
-        w = scenario()
-        w.flex_types.append(types.SimpleNamespace(Name=u'Гибкий', Id=EId(3)))
-        run_button(w, {'_form': {'flex_type': u'Гибкий', 'loop': False}}, path=CONFIG)
-        self.assertEqual(w.form.selected, u'Гибкий')
-        self.assertIn(u'Гибкий', w.form.options)
-        self.assertFalse(w.form.loop)
-
-    def test_config_window_saves_type_and_loop(self):
-        w = scenario()
-        cfg = {}
-        run_button(w, {'_form': {'flex_type': 'Flex Alu', 'loop': True}, '_config': cfg}, path=CONFIG)
-        self.assertEqual((cfg['flex_type'], cfg['loop']), ('Flex Alu', 'true'))
-        w2 = scenario()                                    # основна кнопка бере збережене: тип Alu, цикл увімкнено
-        c = FakeInstance(3, [Connector(None, XYZ(0, 5, 0), XYZ(0, 0, 1))], level=EId(100))
-        d = FakeDuct(4, [Connector(None, XYZ(3, 5, 1), XYZ(-1, 0, 0))], level=EId(100))
-        w2.elements.update({3: c, 4: d})
-        w2.picks = [w2.a, w2.b, c, d, Cancelled]
-        run_button(w2, {'_config': cfg})
-        self.assertEqual([f.created_with['type'] for f in w2.created], [2, 2])
-
-    def test_config_window_turns_loop_off_again(self):
-        w = scenario()
-        cfg = {'loop': 'true'}
-        run_button(w, {'_form': {'flex_type': 'Flex Round', 'loop': False}, '_config': cfg}, path=CONFIG)
-        self.assertEqual(cfg['loop'], 'false')
-        self.assertTrue(w.form.loop)                                # стан у вікні відображає збережений
-
-    def test_config_window_closed_changes_nothing(self):
-        w = scenario()
-        cfg = {'flex_type': 'Flex Round'}
-        with self.assertRaises(ExitScript):
-            run_button(w, {'_config': cfg}, path=CONFIG)
-        self.assertEqual(cfg, {'flex_type': 'Flex Round'})
-
-    def test_config_button_without_types_aborts(self):
-        w = scenario()
-        w.flex_types = []
-        with self.assertRaises(ExitScript):
-            run_button(w, path=CONFIG)
-
 
 class SettingsModuleTests(unittest.TestCase):
     class Cfg(object):
@@ -847,21 +985,28 @@ class SettingsModuleTests(unittest.TestCase):
         hvac_flex_settings.set_loop(c, False)
         self.assertFalse(hvac_flex_settings.is_loop(c))
 
-    def test_flex_type_default_and_roundtrip(self):
-        c = self.Cfg()
-        self.assertEqual(hvac_flex_settings.get_flex_type(c), u'Гибкий')
-        hvac_flex_settings.set_flex_type(c, u'Alu')
-        self.assertEqual(hvac_flex_settings.get_flex_type(c), u'Alu')
-        self.assertEqual(hvac_flex_settings.get_flex_type(self.Broken()), u'Гибкий')
 
-    def test_find_type_index(self):
-        f = hvac_flex_settings.find_type_index
-        names = [u'Alu', u'гибкий', u'Гибкий воздуховод', u'Гибкий']
-        self.assertEqual(f(names, u'Гибкий'), 3)                 # точний збіг важливіший
-        self.assertEqual(f([u'ГИБКИЙ', u'Alu'], u'Гибкий'), 0)   # без регістру
-        self.assertEqual(f([u'Alu', u'Гибкий воздуховод'], u'Гибкий'), 1)    # за початком назви
-        self.assertIsNone(f([u'Alu'], u'Гибкий'))
-        self.assertIsNone(f([u'Alu'], u''))
+class ConfigSettingsTests(unittest.TestCase):
+    def test_defaults(self):
+        c = SettingsModuleTests.Cfg()
+        self.assertEqual(hvac_flex_settings.get_config_param(c), u'Гибкая конфигурация')
+        self.assertEqual(hvac_flex_settings.get_config_value(c), u'Гибкий')
+
+    def test_roundtrip_strips_spaces(self):
+        c = SettingsModuleTests.Cfg()
+        hvac_flex_settings.set_config(c, u' Назва ', u' Знач ')
+        self.assertEqual((hvac_flex_settings.get_config_param(c), hvac_flex_settings.get_config_value(c)),
+                         (u'Назва', u'Знач'))
+
+    def test_empty_value_stays_empty_but_empty_name_falls_back_to_default(self):
+        c = SettingsModuleTests.Cfg(config_param=u'  ', config_value=u'')
+        self.assertEqual(hvac_flex_settings.get_config_value(c), u'')
+        self.assertEqual(hvac_flex_settings.get_config_param(c), u'Гибкая конфигурация')
+
+    def test_read_errors_give_defaults(self):
+        b = SettingsModuleTests.Broken()
+        self.assertEqual(hvac_flex_settings.get_config_value(b), u'Гибкий')
+        self.assertEqual(hvac_flex_settings.get_config_param(b), u'Гибкая конфигурация')
 
 
 class FlexButtonSourceTests(unittest.TestCase):
