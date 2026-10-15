@@ -66,10 +66,12 @@ def log(tool, message):
 
 
 def engine_name():
-    version = sys.version
-    if sys.platform == 'cli' or 'IronPython' in version:
-        return u'IronPython ' + version.split()[0]
-    return u'CPython ' + version.split()[0]
+    """Назва рушія. IronPython 3.4 теж каже «3.4.x», тому дивимось на sys.implementation, а не лише на версію."""
+    version = sys.version.split()[0]
+    impl = getattr(getattr(sys, 'implementation', None), 'name', u'') or u''
+    if 'ironpython' in impl.lower() or sys.platform == 'cli' or 'IronPython' in sys.version:
+        return u'IronPython ' + version
+    return u'CPython ' + version
 
 
 def log_start(tool, doc=None):

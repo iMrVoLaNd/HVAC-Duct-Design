@@ -30,6 +30,7 @@ try:
     from System.Collections.Generic import List
 
     import hvac_palette
+    import hvac_revit
 except Exception:
     hvac_log.log_exception(TOOL, u'імпорт модулів')
     raise
@@ -88,7 +89,7 @@ def find_parameter(param_name):
     """Спільний або проєктний параметр за іменем (ADSK_Система_Имя)."""
     for cls in (DB.SharedParameterElement, DB.ParameterElement):
         for p in DB.FilteredElementCollector(doc).OfClass(cls):
-            if p.Name == param_name:
+            if hvac_revit.element_name(DB, p) == param_name:
                 return p
     return None
 
@@ -144,7 +145,7 @@ def make_overrides(fill_rgb, line_rgb, line_weight, solid_id):
 
 
 def view_templates():
-    return dict((v.Name, v) for v in DB.FilteredElementCollector(doc).OfClass(DB.View) if v.IsTemplate)
+    return dict((hvac_revit.element_name(DB, v), v) for v in DB.FilteredElementCollector(doc).OfClass(DB.View) if v.IsTemplate)
 
 
 def unique_name(name, taken):
@@ -232,7 +233,7 @@ def main():
             template.Name = name
         allow_filters_in_template(template)
 
-        existing = dict((f.Name, f) for f in DB.FilteredElementCollector(doc).OfClass(DB.ParameterFilterElement))
+        existing = dict((hvac_revit.element_name(DB, f), f) for f in DB.FilteredElementCollector(doc).OfClass(DB.ParameterFilterElement))
         in_template = set(eid_int(i) for i in template.GetFilters())
 
         for s in systems:

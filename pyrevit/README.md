@@ -46,7 +46,7 @@
 
 ## Установка: копируйте папку целиком
 
-Кнопки используют общую папку **`HVAC.extension/lib`** (там `hvac_log.py`, `hvac_flex_settings.py`, `hvac_palette.py`,
+Кнопки используют общую папку **`HVAC.extension/lib`** (там `hvac_log.py`, `hvac_revit.py`, `hvac_flex_settings.py`, `hvac_palette.py`,
 `palette.json`). Копируйте/синхронизируйте **всё `HVAC.extension` целиком**, а не отдельные папки кнопок. Если в окне ошибки
 написано `No module named 'hvac_...'` — какого-то файла из `lib` нет (часто это недосинхронизированный Google Drive): дождитесь
 синхронизации, проверьте, что все файлы на месте, и сделайте **Reload** в pyRevit. Кнопка в таком случае сама покажет,

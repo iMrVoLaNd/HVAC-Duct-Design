@@ -34,6 +34,7 @@ try:
     from Autodesk.Revit.Exceptions import OperationCanceledException
 
     import hvac_flex_settings
+    import hvac_revit
 except Exception:
     hvac_log.log_exception(TOOL, u'імпорт модулів')
     raise
@@ -66,7 +67,7 @@ def eid_int(eid):
 
 
 def type_name(t):
-    return DB.Element.Name.GetValue(t)
+    return hvac_revit.element_name(DB, t)
 
 
 def category_name(el):
@@ -78,7 +79,7 @@ def category_name(el):
 
 def type_label(el):
     try:
-        return doc.GetElement(el.GetTypeId()).Name
+        return type_name(doc.GetElement(el.GetTypeId()))
     except Exception:
         return u'?'
 

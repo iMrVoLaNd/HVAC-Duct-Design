@@ -113,6 +113,18 @@ class LogTests(unittest.TestCase):
         hvac_log.log_start('t', doc)
         self.assertIn(u'Revit 2026', read(hvac_log.log_path()))
 
+    def test_engine_name_recognises_ironpython_by_implementation(self):
+        class Impl(object):
+            name = 'ironpython'
+
+        old = sys.implementation
+        sys.implementation = Impl()
+        try:
+            self.assertTrue(hvac_log.engine_name().startswith(u'IronPython '))
+        finally:
+            sys.implementation = old
+        self.assertTrue(hvac_log.engine_name().startswith(u'CPython '))
+
     def test_no_fstrings_for_ironpython34(self):
         import re
         text = read(os.path.join(LIB, 'hvac_log.py'))

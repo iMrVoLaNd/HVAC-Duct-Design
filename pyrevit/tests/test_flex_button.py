@@ -203,7 +203,13 @@ def run_button(world, answers=None, loop=False, path=None):
 
     DB.Mechanical = types.SimpleNamespace(FlexDuct=FlexDuct, FlexDuctType=FlexDuctType, MechanicalSystemType=MechanicalSystemType)
     DB.Level = Level
-    DB.Element = types.SimpleNamespace(Name=types.SimpleNamespace(GetValue=lambda t: t.Name))
+    class NameDescriptor(object):
+        """Як у IronPython 3: DB.Element.Name — getset_descriptor, БЕЗ методу GetValue."""
+
+        def __get__(self, obj, objtype=None):
+            return obj.Name
+
+    DB.Element = types.SimpleNamespace(Name=NameDescriptor())
 
     class Collector(object):
         def __init__(self, d):
@@ -441,6 +447,20 @@ class FlexButtonTests(unittest.TestCase):
             run_button(w)
             spaces.append([l[4] for l in w.log if l[0] == 'pick'][0])
         self.assertTrue(all(spaces) and spaces[0] != spaces[1], spaces)
+
+    # ---------- ім'я елемента (IronPython 3: Element.Name без GetValue) ----------
+
+    def test_type_names_work_when_element_name_has_no_getvalue(self):
+        w = scenario()
+        w.picks = [w.a, w.b]
+        run_button(w)                                        # раніше: AttributeError 'getset_descriptor'…'GetValue'
+        self.assertEqual(len(w.created), 1)
+        self.assertNotIn(u'GetValue', self._log_text())
+
+    def test_config_window_lists_type_names(self):
+        w = scenario()
+        run_button(w, {'_form': {'flex_type': 'Flex Alu', 'loop': False}}, path=CONFIG)
+        self.assertEqual(self._comp(w, 'flex_type').kw['options'], ['Flex Alu', 'Flex Round'])
 
     # ---------- установка: папка lib ----------
 
