@@ -234,13 +234,19 @@ def pick_sample_type(by_name):
 
 
 def pick_element(prompt):
-    """Клік на елементі: повертає (елемент, точка кліку). Точка потрібна, щоб взяти найближчий до кліку конектор."""
-    ref = uidoc.Selection.PickObject(UI.Selection.ObjectType.PointOnElement, DuctElementFilter(), prompt)
+    """Вибір цілого елемента (без точки на ньому — підсвічується весь елемент). Повертає (елемент, точка кліку):
+    точку Revit зазвичай віддає в Reference.GlobalPoint і для вибору елемента; якщо ні — None, і конектори
+    підбираються як найближча пара."""
+    ref = uidoc.Selection.PickObject(UI.Selection.ObjectType.Element, DuctElementFilter(), prompt)
     point = None
     try:
         point = ref.GlobalPoint
     except Exception:
         point = None
+    if point is None:
+        hvac_log.log(TOOL, u'точка кліку недоступна — конектор підбиратиметься як найближча пара')
+    else:
+        hvac_log.log(TOOL, u'точка кліку: ({0:.2f}, {1:.2f}, {2:.2f})'.format(point.X, point.Y, point.Z))
     return doc.GetElement(ref.ElementId), point
 
 

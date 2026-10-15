@@ -1500,12 +1500,20 @@ class FlexButtonTests(unittest.TestCase):
         run_button(w)
         self.assertIn(u'вибір скасовано (Esc)', self._log_text())
 
-    def test_selection_is_click_on_element_with_point(self):
+    def test_selection_is_whole_element_without_visible_point(self):
+        w = scenario()
+        w.picks = [(w.a, XYZ(0, 0, 0)), (w.b, XYZ(3, 0, 1))]
+        run_button(w)
+        picks = [l for l in w.log if l[0] == 'pick']
+        self.assertEqual([p[1] for p in picks[:2]], ['element', 'element'])      # ObjectType.Element: точки на елементі немає
+        self.assertIn(u'точка кліку: (0.00, 0.00, 0.00)', self._log_text())      # але Reference.GlobalPoint використовується
+
+    def test_missing_click_point_is_logged_and_pair_fallback_used(self):
         w = scenario()
         w.picks = [w.a, w.b]
         run_button(w)
-        picks = [l for l in w.log if l[0] == 'pick']
-        self.assertEqual([p[1] for p in picks[:2]], ['pt', 'pt'])                # PointOnElement: потрібна точка кліку
+        self.assertIn(u'точка кліку недоступна', self._log_text())
+        self.assertEqual(len(w.created), 1)
 
     def test_selection_filter_allows_only_duct_categories(self):
         allowed = ('OST_DuctCurves', 'OST_DuctAccessory', 'OST_DuctFitting', 'OST_MechanicalEquipment',
