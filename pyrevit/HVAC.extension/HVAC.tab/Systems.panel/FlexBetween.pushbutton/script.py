@@ -116,12 +116,18 @@ def free_connectors(el):
     return [c for c in element_connectors(el) if is_free_hvac(c)]
 
 
+_ALLOWED_CACHE = []
+
+
 def allowed_category_values():
-    values = set()
-    for name in ALLOWED_CATEGORIES:
-        if hasattr(DB.BuiltInCategory, name):
-            values.add(int(getattr(DB.BuiltInCategory, name)))
-    return values
+    """Числові id дозволених категорій; рахуємо один раз (фільтр викликається при кожному русі курсора)."""
+    if not _ALLOWED_CACHE:
+        values = set()
+        for name in ALLOWED_CATEGORIES:
+            if hasattr(DB.BuiltInCategory, name):
+                values.add(int(getattr(DB.BuiltInCategory, name)))
+        _ALLOWED_CACHE.append(values)
+    return _ALLOWED_CACHE[0]
 
 
 def is_allowed_category(el):
@@ -185,14 +191,61 @@ def save_last(key, value):
         pass
 
 
+PICK_XAML = u"""
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Width="340" SizeToContent="Height" WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize" ShowInTaskbar="False" Topmost="True">
+  <StackPanel Margin="12">
+    <ComboBox x:Name="choices" Margin="0,0,0,10"/>
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+      <Button x:Name="ok_btn" Content="OK" Width="80" Margin="0,0,8,0" IsDefault="True"/>
+      <Button x:Name="cancel_btn" Content="Скасувати" Width="80" IsCancel="True"/>
+    </StackPanel>
+  </StackPanel>
+</Window>
+"""
+
+
+def pick_in_small_window(names, last, title):
+    """Компактне вікно: один випадаючий список, остання вибрана позиція вже підставлена; Enter — OK, Esc — скасувати.
+    Повертає вибране ім'я або None."""
+
+    class PickWindow(forms.WPFWindow):
+        def __init__(self):
+            forms.WPFWindow.__init__(self, PICK_XAML, literal_string=True)
+            self.Title = title
+            self.result = None
+            combo = self.FindName('choices')
+            for n in names:
+                combo.Items.Add(n)
+            combo.SelectedItem = last if last in names else names[0]
+            self.FindName('ok_btn').Click += self.on_ok
+            combo.Focus()
+
+        def on_ok(self, sender, args):
+            self.result = self.FindName('choices').SelectedItem
+            self.Close()
+
+    win = PickWindow()
+    win.ShowDialog()
+    return win.result
+
+
 def choose_from(items, names, title, last_key):
-    """Список з пам'яттю останнього вибору (останній — зверху). Один елемент — без запиту."""
+    """Вибір зі списку з пам'яттю останнього (він підставляється одразу, Enter — підтвердити). Один елемент — без запиту.
+    Не вдалося створити своє вікно — стандартний список pyRevit."""
     if len(items) == 1:
         return items[0]
     last = load_last(last_key)
-    order = sorted(range(len(items)), key=lambda i: (names[i] != last, names[i]))
-    picked = forms.SelectFromList.show([names[i] for i in order], title=title, button_name=u'Обрати',
-                                       multiselect=False)
+    ordered = sorted(names)
+    try:
+        picked = pick_in_small_window(ordered, last, title)
+    except Exception:
+        hvac_log.log_exception(TOOL, u'компактне вікно вибору не вдалося, беру стандартний список')
+        order = sorted(range(len(items)), key=lambda i: (names[i] != last, names[i]))
+        picked = forms.SelectFromList.show([names[i] for i in order], title=title, button_name=u'Обрати',
+                                           multiselect=False)
     if not picked:
         script.exit()
     save_last(last_key, picked)
@@ -302,19 +355,20 @@ def param_text(p):
         return u''
 
 
-def set_param_text(p, value):
-    """Записати значення з тексту; повертає True, якщо вдалося."""
+def set_param_text(p, value, hint=None):
+    """Записати значення з тексту. Повертає (вдалося, число-варіант або None); число — для параметрів-списків."""
     st = p.StorageType
     if st == DB.StorageType.String:
-        return bool(p.Set(value))
+        return bool(p.Set(value)), None
     if st == DB.StorageType.Integer:
         try:
-            return bool(p.Set(int(value)))
+            return bool(p.Set(int(value))), None
         except ValueError:
-            return hvac_revit.set_enum_by_text(p, value, refresh=doc.Regenerate)
+            number = hvac_revit.set_enum_by_text(p, value, refresh=doc.Regenerate, hint=hint)
+            return number is not None, number
     if st == DB.StorageType.Double:
-        return bool(p.SetValueString(value))
-    return False            # ElementId та інше — не підтримуємо
+        return bool(p.SetValueString(value)), None
+    return False, None            # ElementId та інше — не підтримуємо
 
 
 def find_config_param(el):
@@ -352,7 +406,10 @@ def apply_config_param(flex, state):
             if before.strip().lower() == value.lower():
                 hvac_log.log(TOOL, u'«{0}» ({1}) вже = «{2}»'.format(name, label, value))
                 return
-            if set_param_text(p, value):
+            ok, number = set_param_text(p, value, state.get('number'))
+            if number is not None:
+                state['number'] = state['learned'] = number
+            if ok:
                 hvac_log.log(TOOL, u'«{0}» ({1}): «{2}» → «{3}»'.format(name, label, before, value))
             else:
                 hvac_log.log(TOOL, u'«{0}» ({1}): значення «{2}» не прийнято (було «{3}»)'.format(name, label, value, before))
@@ -407,7 +464,7 @@ def main():
     hvac_log.log(TOOL, u'тип «{0}», «Гибкая конфигурация» = «{1}», цикл {2}, журнал {3}'.format(
         type_name(flex_type), config_value, loop, hvac_log.log_path()))
     tail = u'Esc — завершити' if loop else u'Esc — скасувати'
-    system_state = {'id': None, 'value': config_value, 'warnings': [], 'dumped': False}
+    system_state = {'id': None, 'value': config_value, 'number': hvac_flex_settings.get_config_number(cfg), 'learned': None, 'warnings': [], 'dumped': False}
     made = 0
     while True:
         try:
@@ -444,8 +501,10 @@ def main():
             break
     for w in sorted(set(system_state['warnings'])):
         output.print_md(u'* **Увага:** {0}'.format(w))
-    if made:
-        output.print_md(u'**Гнучких повітроводів створено: {0}** (тип «{1}»)'.format(made, type_name(flex_type)))
+    if system_state['learned'] is not None and system_state['learned'] != hvac_flex_settings.get_config_number(cfg):
+        hvac_flex_settings.set_config_number(cfg, system_state['learned'])      # наступного разу — без перебору
+        script.save_config()
+    hvac_log.log(TOOL, u'створено гнучких повітроводів: {0}'.format(made))      # вікно виводу на успіх не відкриваємо
 
 
 hvac_log.run(TOOL, main, doc)

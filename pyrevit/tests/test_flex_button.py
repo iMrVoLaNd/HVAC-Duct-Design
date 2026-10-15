@@ -268,7 +268,16 @@ def run_button(world, answers=None, loop=False, path=None):
     DB = types.SimpleNamespace()
     DB.ElementId = EId
     DB.XYZ = XYZ
-    DB.BuiltInCategory = types.SimpleNamespace(**CATS)
+    class CountingCategories(object):
+        """BuiltInCategory, що рахує звернення: перевірка, що фільтр не перераховує категорії при кожному русі курсора."""
+
+        def __getattr__(self, name):
+            if name in CATS:
+                world.category_reads = getattr(world, 'category_reads', 0) + 1
+                return CATS[name]
+            raise AttributeError(name)
+
+    DB.BuiltInCategory = CountingCategories()
     DB.Domain, DB.ConnectorType = Domain, CType
     DB.StorageType = types.SimpleNamespace(String='s', Integer='i', Double='d', ElementId='e')
     DB.ConnectorProfileType = types.SimpleNamespace(Round='round', Rectangular='rect')
@@ -398,6 +407,9 @@ def run_button(world, answers=None, loop=False, path=None):
         def __init__(self):
             self.Items, self.SelectedItem = ItemsList(), None
 
+        def Focus(self):
+            return True
+
     class Check(object):
         IsChecked = False
 
@@ -411,11 +423,13 @@ def run_button(world, answers=None, loop=False, path=None):
         def __init__(self, xaml, literal_string=False, **kw):
             if answers.get('_wpf_crash'):
                 raise RuntimeError('XAML не розібрано')
-            for name in ('param_value', 'loop', 'save_btn', 'cancel_btn'):
-                assert 'x:Name="%s"' % name in xaml, name
             assert literal_string
-            assert 'IsEditable="False"' in xaml                # лише вибір зі списку, вводити своє не можна
-            self.ctl = {'param_value': Combo(), 'loop': Check(), 'save_btn': Button(), 'cancel_btn': Button()}
+            self.Title = u''
+            self.ctl = {}
+            for name in re.findall(r'x:Name="(\w+)"', xaml):
+                self.ctl[name] = Button() if name.endswith('_btn') else (Check() if name == 'loop' else Combo())
+            if 'param_value' in self.ctl:
+                assert 'IsEditable="False"' in xaml            # лише вибір зі списку, вводити своє не можна
             self.closed = False
 
         def FindName(self, name):
@@ -426,6 +440,17 @@ def run_button(world, answers=None, loop=False, path=None):
 
         def ShowDialog(self):
             c = self.ctl
+            if 'choices' in c:                                # компактне вікно вибору типу
+                combo = c['choices']
+                world.log.append(('select', self.Title, list(combo.Items), combo.SelectedItem))
+                for key, val in answers.items():
+                    if isinstance(key, type(u'')) and key in self.Title:
+                        if val is None:
+                            return                            # закрито без вибору
+                        combo.SelectedItem = val
+                for h in c['ok_btn'].Click.handlers:
+                    h(None, None)
+                return
             world.form = types.SimpleNamespace(value=c['param_value'].SelectedItem,
                                                options=list(c['param_value'].Items), loop=c['loop'].IsChecked)
             reply = answers.get('_form')              # None — вікно закрито без збереження
@@ -712,6 +737,108 @@ class FlexButtonTests(unittest.TestCase):
         self._built(w, {u'Тип гнучкого': 'Flex Round'})
         self.assertEqual((len(w.created), w.tx), (1, ['start', 'commit']))
         self.assertIn(u'параметр-збій-5150', self._log_text())
+
+    # ---------- швидкість і компактне вікно вибору типу ----------
+
+    def test_type_picker_is_small_window_sorted_with_last_preselected(self):
+        w = scenario()
+        w.flex_types.append(FlexTypeEl('Aaa', 3))
+        w.picks = [w.a, w.b]
+        run_button(w, {'_config': {'flex_type': 'Flex Alu'}})
+        shown = [l for l in w.log if l[0] == 'select'][0]
+        self.assertEqual((shown[2], shown[3]), (['Aaa', 'Flex Alu', 'Flex Round'], 'Flex Alu'))
+
+    def test_enter_without_changes_uses_preselected_type(self):
+        w = scenario()
+        w.picks = [w.a, w.b]
+        run_button(w, {'_config': {'flex_type': 'Flex Round'}})
+        self.assertEqual(w.created[0].created_with['type'], 1)
+
+    def test_closing_type_picker_cancels_the_button(self):
+        w = scenario()
+        with self.assertRaises(ExitScript):
+            run_button(w, {u'Тип гнучкого': None})
+        self.assertEqual(w.created, [])
+
+    def test_type_picker_falls_back_to_standard_list_if_window_fails(self):
+        w = scenario()
+        w.picks = [w.a, w.b]
+        run_button(w, {'_wpf_crash': True, u'Тип гнучкого': 'Flex Alu'})
+        self.assertEqual(w.created[0].created_with['type'], 2)
+        self.assertIn(u'компактне вікно вибору не вдалося', self._log_text())
+
+    def test_system_type_choice_uses_the_same_small_window(self):
+        w = scenario()
+        w.a.MEPModel.ConnectorManager.Connectors[0].MEPSystem = None
+        w.picks = [w.a, w.b]
+        run_button(w, {u'Тип системи': 'Return Air'})
+        self.assertEqual(w.created[0].created_with['system'], 11)
+        self.assertTrue(any(l[0] == 'select' and u'Тип системи' in l[1] for l in w.log))
+
+    def test_filter_computes_allowed_categories_once_not_per_hover(self):
+        w = self._two_pairs()
+        run_button(w, loop=True)                          # 4 вибори = 4 виклики AllowElement
+        self.assertEqual(len([l for l in w.log if l[0] == 'pick']), 4)
+        self.assertLessEqual(w.category_reads, 8)         # лише один прохід по 4 категоріях (hasattr + getattr)
+
+    def test_success_does_not_open_output_window(self):
+        w = scenario()
+        w.flex_types[0].add(EnumParam(u'Гибкая конфигурация', [u'Жорсткий', u'Гибкий']), 'flexpat')
+        w.picks = [w.a, w.b]
+        run_button(w, {u'Тип гнучкого': 'Flex Round'})
+        self.assertEqual([l for l in w.log if l[0] == 'md'], [])           # print_md відкрив би вікно виводу pyRevit
+        self.assertIn(u'створено гнучких повітроводів: 1', self._log_text())
+
+    def _enum_project(self, w, **kw):
+        p = EnumParam(u'Гибкая конфигурация', [u'Жорсткий', u'Гибкий', u'Спіральний'], value=0, **kw)
+        w.flex_types[0].add(p, 'flexpat')
+        return p
+
+    def test_first_run_probes_then_saves_number_for_next_time(self):
+        w = scenario()
+        p = self._enum_project(w)
+        cfg = {}
+        self._built(w, {u'Тип гнучкого': 'Flex Round', '_config': cfg})
+        self.assertEqual(p.value, 1)
+        self.assertEqual(cfg['config_value_num'], '1')
+
+    def test_known_number_is_used_without_probing(self):
+        w = scenario()
+        p = self._enum_project(w)
+        self._built(w, {u'Тип гнучкого': 'Flex Round', '_config': {'config_value_num': '1'}})
+        self.assertEqual(p.value, 1)
+        self.assertEqual(p.sets, [('Set', 1)])                              # один запис, без перебору
+        self.assertEqual(len([l for l in w.log if l[0] == 'regenerate']), 1)
+
+    def test_stale_number_falls_back_to_probing(self):
+        w = scenario()
+        p = self._enum_project(w)
+        cfg = {'config_value_num': '2'}                                     # 2 = «Спіральний», а потрібен «Гибкий»
+        self._built(w, {u'Тип гнучкого': 'Flex Round', '_config': cfg})
+        self.assertEqual(p.value, 1)
+        self.assertEqual(cfg['config_value_num'], '1')                      # виправлено
+
+    def test_loop_probes_only_once_for_several_ducts(self):
+        w = self._two_pairs()
+        p = self._enum_project(w)
+        run_button(w, {u'Тип гнучкого': 'Flex Round'}, loop=True)
+        self.assertEqual(len(w.created), 2)
+        set_calls = len([x for x in p.sets])
+        # перебір (до ~7 записів) лише для першого воздуховода; другий — один запис: загалом помітно менше 2 перебирань
+        self.assertLess(set_calls, 12)
+
+    def test_settings_window_saves_number_of_chosen_option(self):
+        w = scenario()
+        self._project_with_enum(w)
+        cfg = {}
+        run_button(w, {'_form': {'value': u'Спіральний', 'loop': False}, '_config': cfg}, path=CONFIG)
+        self.assertEqual((cfg['config_value'], cfg['config_value_num']), (u'Спіральний', '2'))
+
+    def test_settings_window_without_known_options_clears_number(self):
+        w = scenario()
+        cfg = {'config_value_num': '1'}
+        run_button(w, {'_form': {'value': u'Гибкий', 'loop': False}, '_config': cfg}, path=CONFIG)
+        self.assertEqual(cfg['config_value_num'], '')
 
     # ---------- «Гибкая конфигурация» = RBS_FLEX_PATTERN_PARAM: пошук і значення-список ----------
 
@@ -1066,18 +1193,16 @@ class FlexButtonTests(unittest.TestCase):
     def test_remembers_last_choice(self):
         w = scenario()
         cfg = {}
-        w.picks = [w.a, w.b, Cancelled]
-        run_button(w, {u'Тип гнучкого': 'Flex Alu', '_config': cfg})
-        self.assertEqual(cfg.get('flex_type'), 'Flex Alu')
+        w.picks = [w.a, w.b]
+        run_button(w, {u'Тип гнучкого': 'Flex Round', '_config': cfg})
+        self.assertEqual(cfg.get('flex_type'), 'Flex Round')
         w2 = scenario()
-        w2.picks = [w2.a, w2.b, Cancelled]
-        run_button(w2, {'_config': cfg})
+        w2.picks = [w2.a, w2.b]
+        run_button(w2, {'_config': cfg})                                      # у вікні нічого не міняємо: просто Enter
         shown = [l for l in w2.log if l[0] == 'select' and u'Тип гнучкого' in l[1]]
         self.assertEqual(len(shown), 1)                                      # тип обирається при кожному запуску
-        self.assertEqual(shown[0][2][0], 'Flex Alu')                         # останній обраний — першим у списку
-        self.assertEqual(w2.created[0].created_with['type'], 2)
-
-    # ---------- режим циклу: за замовчуванням вимкнено ----------
+        self.assertEqual(shown[0][3], 'Flex Round')                          # останній обраний уже підставлено
+        self.assertEqual(w2.created[0].created_with['type'], 1)
 
     def _two_pairs(self):
         w = scenario()

@@ -57,8 +57,8 @@ XAML = u"""
 
 
 def read_options():
-    """Варіанти параметра «Гибкая конфигурация» з проєкту: перебір значень у транзакції, яку відкочуємо.
-    Береться перший гнучкий повітровод (або тип) із цим параметром. Немає такого — порожній список."""
+    """Варіанти параметра «Гибкая конфигурация» з проєкту: [(число, текст), ...]. Перебір значень у транзакції,
+    яку відкочуємо. Береться перший гнучкий повітровод (або тип) із цим параметром. Немає такого — порожній список."""
     try:
         for cls in (DB.Mechanical.FlexDuct, DB.Mechanical.FlexDuctType):
             for el in DB.FilteredElementCollector(doc).OfClass(cls):
@@ -69,10 +69,11 @@ def read_options():
                 t = DB.Transaction(doc, u'Варіанти параметра (відкат)')
                 t.Start()
                 try:
-                    options = [text for _num, text in hvac_revit.enum_options(p, refresh=doc.Regenerate)]
+                    options = hvac_revit.enum_options(p, refresh=doc.Regenerate)
                 finally:
                     t.RollBack()
-                hvac_log.log(TOOL, u'варіанти параметра: {0}'.format(u'; '.join(options) or u'(не знайдено)'))
+                hvac_log.log(TOOL, u'варіанти параметра: {0}'.format(
+                    u'; '.join(u'{0}={1}'.format(n, text) for n, text in options) or u'(не знайдено)'))
                 return options
     except Exception:
         hvac_log.log_exception(TOOL, u'читання варіантів параметра (не критично)')
@@ -144,7 +145,8 @@ def main():
     value = hvac_flex_settings.get_config_value(cfg)
     loop = hvac_flex_settings.is_loop(cfg)
 
-    options = read_options()
+    pairs = read_options()
+    options = [text for _num, text in pairs]
     try:
         result = ask_with_window(value, loop, options)
     except Exception:
@@ -153,10 +155,12 @@ def main():
     if result is None:                        # вікно закрито без збереження — нічого не змінюємо
         hvac_log.log(TOOL, u'налаштування не змінено')
         script.exit()
-    hvac_flex_settings.set_config_value(cfg, result[0])
+    number = dict((text, num) for num, text in pairs).get(result[0])      # число варіанта — щоб кнопка не перебирала його щоразу
+    hvac_flex_settings.set_config_value(cfg, result[0], number)
     hvac_flex_settings.set_loop(cfg, result[1])
     script.save_config()
-    hvac_log.log(TOOL, u'збережено: «Гибкая конфигурация» = «{0}», цикл {1}'.format(result[0], result[1]))
+    hvac_log.log(TOOL, u'збережено: «Гибкая конфигурация» = «{0}» (число {1}), цикл {2}'.format(
+        result[0], number, result[1]))
 
 
 hvac_log.run(TOOL, main, doc)

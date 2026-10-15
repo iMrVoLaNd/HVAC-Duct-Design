@@ -44,5 +44,24 @@ def get_config_value(cfg):
     return DEFAULT_CONFIG_VALUE if value is None else value.strip()
 
 
-def set_config_value(cfg, value):
+CONFIG_NUMBER_KEY = 'config_value_num'
+
+
+def get_config_number(cfg):
+    """Число, що відповідає збереженому значенню-тексту (щоб не перебирати варіанти щоразу); None — невідомо."""
+    try:
+        raw = cfg.get_option(CONFIG_NUMBER_KEY, '')
+        return int(str(raw).strip()) if str(raw).strip() != '' else None
+    except Exception:
+        return None
+
+
+def set_config_value(cfg, value, number=None):
+    """Зберегти значення (текст) і, якщо відоме, відповідне число; без числа старе число стирається."""
     cfg.set_option(CONFIG_VALUE_KEY, value.strip())
+    cfg.set_option(CONFIG_NUMBER_KEY, '' if number is None else str(int(number)))
+
+
+def set_config_number(cfg, number):
+    """Запам'ятати число для вже збереженого значення (кнопка сама дізналась його при першому запису)."""
+    cfg.set_option(CONFIG_NUMBER_KEY, str(int(number)))
