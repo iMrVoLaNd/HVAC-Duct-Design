@@ -151,6 +151,9 @@ class CfgParam(object):
     def AsString(self):
         return self.value
 
+    def AsInteger(self):
+        return self.value
+
     def AsValueString(self):
         return str(self.value)
 
@@ -167,9 +170,45 @@ class CfgParam(object):
         return self.accepts
 
 
+class EnumParam(CfgParam):
+    """Параметр-список: ціле число, на екрані — текст. lenient=True: Set приймає будь-яке число (як може бути в Revit),
+    а текст для зайвих чисел порожній."""
+
+    def __init__(self, name, options, value=0, lenient=False, read_only=False, clamp=False):
+        CfgParam.__init__(self, name, value, storage='i', read_only=read_only)
+        self.options, self.lenient, self.clamp = list(options), lenient or clamp, clamp
+
+    def AsInteger(self):
+        return self.value
+
+    def AsValueString(self):
+        if self.clamp:                      # Revit може «притискати» зайве число до останнього варіанта
+            return self.options[min(self.value, len(self.options) - 1)]
+        return self.options[self.value] if 0 <= self.value < len(self.options) else u''
+
+    def Set(self, v):
+        self.sets.append(('Set', v))
+        if not isinstance(v, int) or (v >= len(self.options) and not self.lenient):
+            return False
+        self.value = v
+        return True
+
+
 class HasParams(object):
     def __init__(self, *params):
-        self.cfg_params = dict((p.Definition.Name, p) for p in params)
+        self.cfg_params, self.bip_params = {}, {}
+        for p in params:
+            self.add(p)
+
+    def add(self, p, bip=None):
+        """Додати параметр: за назвою й (якщо вказано) за BuiltInParameter."""
+        self.cfg_params[p.Definition.Name] = p
+        if bip is not None:
+            self.bip_params[bip] = p
+        return p
+
+    def get_Parameter(self, bip):
+        return self.bip_params.get(bip)
 
     def LookupParameter(self, name):
         return self.cfg_params.get(name)
@@ -202,6 +241,10 @@ class FakeFlex(HasParams):
             Connector(self, points[0], XYZ(1, 0, 0)), Connector(self, points[-1], XYZ(-1, 0, 0))]))
 
     def get_Parameter(self, bip):
+        if bip in self.bip_params:
+            return self.bip_params[bip]
+        if bip == 'flexpat':
+            return None
         return self.params.setdefault(bip, Param())
 
 
@@ -217,6 +260,7 @@ class World(object):
         self.picks = []          # сценарій вибору: елемент або Cancelled
         self.alerts, self.answers = [], {}
         self.tx = []
+        self.flex_instances = []
 
 
 def run_button(world, answers=None, loop=False, path=None):
@@ -227,7 +271,7 @@ def run_button(world, answers=None, loop=False, path=None):
     DB.Domain, DB.ConnectorType = Domain, CType
     DB.StorageType = types.SimpleNamespace(String='s', Integer='i', Double='d', ElementId='e')
     DB.ConnectorProfileType = types.SimpleNamespace(Round='round', Rectangular='rect')
-    DB.BuiltInParameter = types.SimpleNamespace(RBS_CURVE_DIAMETER_PARAM='diam', RBS_CURVE_WIDTH_PARAM='w', RBS_CURVE_HEIGHT_PARAM='h')
+    DB.BuiltInParameter = types.SimpleNamespace(RBS_CURVE_DIAMETER_PARAM='diam', RBS_CURVE_WIDTH_PARAM='w', RBS_CURVE_HEIGHT_PARAM='h', RBS_FLEX_PATTERN_PARAM='flexpat')
 
     class FlexDuctType(object):
         pass
@@ -273,7 +317,7 @@ def run_button(world, answers=None, loop=False, path=None):
 
         def OfClass(self, cls):
             return {FlexDuctType: list(world.flex_types), MechanicalSystemType: list(world.system_types),
-                    Level: list(world.levels)}.get(cls, [])
+                    Level: list(world.levels), FlexDuct: list(world.flex_instances)}.get(cls, [])
 
     DB.FilteredElementCollector = Collector
 
@@ -294,6 +338,9 @@ def run_button(world, answers=None, loop=False, path=None):
 
     class Doc(object):
         ActiveView = types.SimpleNamespace(GenLevel=None)
+
+        def Regenerate(self):
+            world.log.append(('regenerate',))
 
         def GetElement(self, eid):
             if hasattr(eid, 'el'):
@@ -334,6 +381,10 @@ def run_button(world, answers=None, loop=False, path=None):
                     return val
             return items[0]
 
+    class ItemsList(list):
+        def Add(self, x):
+            self.append(x)
+
     class Event(object):
         def __init__(self):
             self.handlers = []
@@ -342,8 +393,9 @@ def run_button(world, answers=None, loop=False, path=None):
             self.handlers.append(h)
             return self
 
-    class TextBox(object):
-        Text = u''
+    class Combo(object):
+        def __init__(self):
+            self.Items, self.Text = ItemsList(), u''
 
     class Check(object):
         IsChecked = False
@@ -358,11 +410,11 @@ def run_button(world, answers=None, loop=False, path=None):
         def __init__(self, xaml, literal_string=False, **kw):
             if answers.get('_wpf_crash'):
                 raise RuntimeError('XAML не розібрано')
-            for name in ('param_name', 'param_value', 'loop', 'save_btn', 'cancel_btn'):
+            for name in ('param_value', 'loop', 'save_btn', 'cancel_btn'):
                 assert 'x:Name="%s"' % name in xaml, name
             assert literal_string
-            self.ctl = {'param_name': TextBox(), 'param_value': TextBox(), 'loop': Check(),
-                        'save_btn': Button(), 'cancel_btn': Button()}
+            assert 'IsEditable="True"' in xaml
+            self.ctl = {'param_value': Combo(), 'loop': Check(), 'save_btn': Button(), 'cancel_btn': Button()}
             self.closed = False
 
         def FindName(self, name):
@@ -373,11 +425,11 @@ def run_button(world, answers=None, loop=False, path=None):
 
         def ShowDialog(self):
             c = self.ctl
-            world.form = types.SimpleNamespace(name=c['param_name'].Text, value=c['param_value'].Text,
+            world.form = types.SimpleNamespace(value=c['param_value'].Text, options=list(c['param_value'].Items),
                                                loop=c['loop'].IsChecked)
             reply = answers.get('_form')              # None — вікно закрито без збереження
             if reply is not None:
-                c['param_name'].Text, c['param_value'].Text = reply['name'], reply['value']
+                c['param_value'].Text = reply['value']
                 c['loop'].IsChecked = reply['loop']
                 for h in c['save_btn'].Click.handlers:
                     h(None, None)
@@ -573,7 +625,7 @@ class FlexButtonTests(unittest.TestCase):
     def test_default_parameter_is_set_on_type_to_gibkiy(self):
         w = scenario()
         p = CfgParam(u'Гибкая конфигурация', u'Жорсткий')
-        w.flex_types[0].cfg_params[p.Definition.Name] = p
+        w.flex_types[0].add(p, 'flexpat')
         self._built(w, {u'Тип гнучкого': 'Flex Round'})
         self.assertEqual(p.value, u'Гибкий')
         self.assertEqual(p.sets, [('Set', u'Гибкий')])
@@ -581,13 +633,13 @@ class FlexButtonTests(unittest.TestCase):
     def test_instance_parameter_wins_over_type_parameter(self):
         w = scenario()
         inst, typ = CfgParam(u'Гибкая конфигурация', u'старе'), CfgParam(u'Гибкая конфигурация', u'старе')
-        w.flex_types[0].cfg_params[typ.Definition.Name] = typ
+        w.flex_types[0].add(typ, 'flexpat')
         # екземпляр створюється самою заглушкою; додаємо параметр екземпляру через підміну конструктора FakeFlex
         FakeFlex_init = FakeFlex.__init__
 
         def init(self, points, ident):
             FakeFlex_init(self, points, ident)
-            self.cfg_params[inst.Definition.Name] = inst
+            self.add(inst, 'flexpat')
         FakeFlex.__init__ = init
         try:
             self._built(w, {u'Тип гнучкого': 'Flex Round'})
@@ -595,43 +647,35 @@ class FlexButtonTests(unittest.TestCase):
             FakeFlex.__init__ = FakeFlex_init
         self.assertEqual((inst.value, typ.value), (u'Гибкий', u'старе'))
 
-    def test_value_and_name_come_from_settings(self):
-        w = scenario()
-        p = CfgParam(u'Моя конфігурація', u'x')
-        w.flex_types[0].cfg_params[p.Definition.Name] = p
-        cfg = {'config_param': u'Моя конфігурація', 'config_value': u'Спіральний'}
-        self._built(w, {u'Тип гнучкого': 'Flex Round', '_config': cfg})
-        self.assertEqual(p.value, u'Спіральний')
-
     def test_empty_value_means_do_not_touch_parameter(self):
         w = scenario()
         p = CfgParam(u'Гибкая конфигурация', u'Жорсткий')
-        w.flex_types[0].cfg_params[p.Definition.Name] = p
+        w.flex_types[0].add(p, 'flexpat')
         self._built(w, {u'Тип гнучкого': 'Flex Round', '_config': {'config_value': ''}})
         self.assertEqual((p.value, p.sets), (u'Жорсткий', []))
 
     def test_value_already_equal_is_not_rewritten(self):
         w = scenario()
         p = CfgParam(u'Гибкая конфигурация', u'Гибкий')
-        w.flex_types[0].cfg_params[p.Definition.Name] = p
+        w.flex_types[0].add(p, 'flexpat')
         self._built(w, {u'Тип гнучкого': 'Flex Round'})
         self.assertEqual(p.sets, [])
 
     def test_missing_parameter_does_not_block_building_and_lists_names(self):
         w = scenario()
         other = CfgParam(u'Інший параметр', u'1')
-        w.flex_types[0].cfg_params[other.Definition.Name] = other
+        w.flex_types[0].add(other)                     # інша назва й не вбудований параметр — «Гибкая конфигурация» не знайти
         f = self._built(w, {u'Тип гнучкого': 'Flex Round'})
         self.assertEqual(w.tx, ['start', 'commit'])
         text = self._log_text()
-        self.assertIn(u'параметра «Гибкая конфигурация» немає', text)
+        self.assertIn(u'параметра «Гибкая конфигурация» (RBS_FLEX_PATTERN_PARAM) немає', text)
         self.assertIn(u'Інший параметр', text)                                    # перелік параметрів для діагностики
         self.assertTrue(any(l[0] == 'md' and u'Параметра «Гибкая конфигурация» не знайдено' in l[1] for l in w.log))
 
     def test_read_only_parameter_is_skipped_with_warning(self):
         w = scenario()
         p = CfgParam(u'Гибкая конфигурация', u'Жорсткий', read_only=True)
-        w.flex_types[0].cfg_params[p.Definition.Name] = p
+        w.flex_types[0].add(p, 'flexpat')
         self._built(w, {u'Тип гнучкого': 'Flex Round'})
         self.assertEqual(p.sets, [])
         self.assertTrue(any(l[0] == 'md' and u'тільки для читання' in l[1] for l in w.log))
@@ -639,19 +683,20 @@ class FlexButtonTests(unittest.TestCase):
     def test_integer_parameter_uses_int_or_value_string(self):
         w = scenario()
         p = CfgParam(u'Гибкая конфигурация', 0, storage='i')
-        w.flex_types[0].cfg_params[p.Definition.Name] = p
+        w.flex_types[0].add(p, 'flexpat')
         self._built(w, {u'Тип гнучкого': 'Flex Round', '_config': {'config_value': '3'}})
         self.assertEqual(p.sets, [('Set', 3)])
         w2 = scenario()
         p2 = CfgParam(u'Гибкая конфигурация', 0, storage='i')
-        w2.flex_types[0].cfg_params[p2.Definition.Name] = p2
-        self._built(w2, {u'Тип гнучкого': 'Flex Round'})                          # «Гибкий» — не число
-        self.assertEqual(p2.sets, [('SetValueString', u'Гибкий')])
+        w2.flex_types[0].add(p2, 'flexpat')
+        self._built(w2, {u'Тип гнучкого': 'Flex Round'})                          # «Гибкий» — не число й не варіант
+        self.assertEqual(p2.value, 0)                                              # значення відновлено
+        self.assertTrue(any(l[0] == 'md' and u'не прийнято' in l[1] for l in w2.log))
 
     def test_parameter_not_accepted_gives_warning_but_still_builds(self):
         w = scenario()
         p = CfgParam(u'Гибкая конфигурация', u'Ж', accepts=False)
-        w.flex_types[0].cfg_params[p.Definition.Name] = p
+        w.flex_types[0].add(p, 'flexpat')
         self._built(w, {u'Тип гнучкого': 'Flex Round'})
         self.assertEqual(len(w.created), 1)
         self.assertTrue(any(l[0] == 'md' and u'не прийнято' in l[1] for l in w.log))
@@ -662,34 +707,125 @@ class FlexButtonTests(unittest.TestCase):
                 raise RuntimeError('параметр-збій-5150')
         w = scenario()
         p = Boom(u'Гибкая конфигурация', u'Ж')
-        w.flex_types[0].cfg_params[p.Definition.Name] = p
+        w.flex_types[0].add(p, 'flexpat')
         self._built(w, {u'Тип гнучкого': 'Flex Round'})
         self.assertEqual((len(w.created), w.tx), (1, ['start', 'commit']))
         self.assertIn(u'параметр-збій-5150', self._log_text())
 
+    # ---------- «Гибкая конфигурация» = RBS_FLEX_PATTERN_PARAM: пошук і значення-список ----------
+
+    def test_builtin_parameter_is_found_even_if_its_name_is_localized_differently(self):
+        w = scenario()
+        p = CfgParam(u'Flex pattern', u'Rigid')                       # назва іншою мовою, але це той самий BuiltInParameter
+        w.flex_types[0].add(p, 'flexpat')
+        self._built(w, {u'Тип гнучкого': 'Flex Round'})
+        self.assertEqual(p.value, u'Гибкий')
+
+    def test_parameter_found_by_name_when_builtin_missing(self):
+        w = scenario()
+        p = CfgParam(u'Гибкая конфигурация', u'Жорсткий')
+        w.flex_types[0].add(p)                                        # без BuiltInParameter — лише за назвою
+        self._built(w, {u'Тип гнучкого': 'Flex Round'})
+        self.assertEqual(p.value, u'Гибкий')
+
+    def test_enum_parameter_text_is_mapped_to_number(self):
+        w = scenario()
+        p = EnumParam(u'Гибкая конфигурация', [u'Жорсткий', u'Гибкий', u'Спіральний'], value=0)
+        w.flex_types[0].add(p, 'flexpat')
+        self._built(w, {u'Тип гнучкого': 'Flex Round'})
+        self.assertEqual((p.value, p.AsValueString()), (1, u'Гибкий'))
+
+    def test_enum_parameter_lenient_set_still_maps_text(self):
+        w = scenario()
+        p = EnumParam(u'Гибкая конфигурация', [u'Жорсткий', u'Гибкий'], value=0, lenient=True)
+        w.flex_types[0].add(p, 'flexpat')
+        self._built(w, {u'Тип гнучкого': 'Flex Round'})
+        self.assertEqual(p.value, 1)
+        self.assertEqual(len(p.sets) < 20, True)                       # зупинились після кількох промахів, а не на 32
+
+    def test_enum_text_not_among_options_leaves_old_value_and_warns(self):
+        w = scenario()
+        p = EnumParam(u'Гибкая конфигурация', [u'Жорсткий', u'Спіральний'], value=1)
+        w.flex_types[0].add(p, 'flexpat')
+        self._built(w, {u'Тип гнучкого': 'Flex Round'})
+        self.assertEqual(p.value, 1)                                  # як було
+        self.assertEqual(len(w.created), 1)
+        self.assertTrue(any(l[0] == 'md' and u'не прийнято' in l[1] for l in w.log))
+
     # ---------- вікно налаштувань ----------
 
-    def test_config_window_shows_defaults_gibkaya_konfiguratsiya_and_loop_off(self):
+    def _project_with_enum(self, w, options=(u'Жорсткий', u'Гибкий', u'Спіральний'), on_instance=True, **kw):
+        p = EnumParam(u'Гибкая конфигурация', list(options), value=2, **kw)
+        if on_instance:
+            inst = FakeFlex([XYZ(0, 0, 0), XYZ(1, 0, 0)], 777)
+            inst.add(p, 'flexpat')
+            w.flex_instances.append(inst)
+        else:
+            w.flex_types[0].add(p, 'flexpat')
+        return p
+
+    def test_options_without_duplicates_when_out_of_range_numbers_repeat_last_text(self):
         w = scenario()
-        run_button(w, {'_form': {'name': u'Гибкая конфигурация', 'value': u'Гибкий', 'loop': False}}, path=CONFIG)
-        self.assertEqual((w.form.name, w.form.value, w.form.loop), (u'Гибкая конфигурация', u'Гибкий', False))
+        self._project_with_enum(w, clamp=True)
+        run_button(w, {'_form': {'value': u'Гибкий', 'loop': False}}, path=CONFIG)
+        self.assertEqual(w.form.options, [u'Жорсткий', u'Гибкий', u'Спіральний'])
 
-    def test_config_window_has_no_flex_type_list(self):
-        with io.open(CONFIG, encoding='utf-8') as f:
-            text = f.read()
-        self.assertNotIn('FlexDuctType', text)
+    def test_config_window_lists_parameter_options_and_defaults_to_gibkiy(self):
+        w = scenario()
+        self._project_with_enum(w)
+        run_button(w, {'_form': {'value': u'Гибкий', 'loop': False}}, path=CONFIG)
+        self.assertEqual(w.form.options, [u'Жорсткий', u'Гибкий', u'Спіральний'])
+        self.assertEqual((w.form.value, w.form.loop), (u'Гибкий', False))
 
-    def test_config_window_saves_everything(self):
+    def test_reading_options_does_not_change_the_project(self):
+        w = scenario()
+        p = self._project_with_enum(w)
+        run_button(w, {'_form': {'value': u'Гибкий', 'loop': False}}, path=CONFIG)
+        self.assertEqual(p.value, 2)                                  # значення відновлено
+        self.assertEqual(w.tx, ['start', 'rollback'])                 # транзакцію відкотено, не закомічено
+
+    def test_options_are_read_from_flex_type_when_no_instances(self):
+        w = scenario()
+        self._project_with_enum(w, on_instance=False)
+        run_button(w, {'_form': {'value': u'Гибкий', 'loop': False}}, path=CONFIG)
+        self.assertEqual(w.form.options, [u'Жорсткий', u'Гибкий', u'Спіральний'])
+
+    def test_no_options_available_window_still_opens_with_default_text(self):
+        w = scenario()                                                # у проєкті немає параметра
+        run_button(w, {'_form': {'value': u'Гибкий', 'loop': False}}, path=CONFIG)
+        self.assertEqual((w.form.options, w.form.value), ([], u'Гибкий'))
+        self.assertEqual(w.tx, [])
+
+    def test_option_reading_failure_is_not_critical(self):
+        class Boom(EnumParam):
+            def AsInteger(self):
+                raise RuntimeError('збій-читання-8812')
+
+            def Set(self, v):
+                raise RuntimeError('збій-запису-8812')
+        w = scenario()
+        inst = FakeFlex([XYZ(0, 0, 0), XYZ(1, 0, 0)], 777)
+        inst.add(Boom(u'Гибкая конфигурация', [u'a']), 'flexpat')
+        w.flex_instances.append(inst)
+        run_button(w, {'_form': {'value': u'Гибкий', 'loop': False}}, path=CONFIG)
+        self.assertEqual(w.form.options, [])                          # вікно все одно відкрилось
+
+    def test_config_window_default_value_is_gibkiy_and_loop_off(self):
+        w = scenario()
+        run_button(w, {'_form': {'value': u'Гибкий', 'loop': False}}, path=CONFIG)
+        self.assertEqual((w.form.value, w.form.loop), (u'Гибкий', False))
+
+    def test_config_window_saves_value_and_loop(self):
         w = scenario()
         cfg = {}
-        run_button(w, {'_form': {'name': u' Моя ', 'value': u'Інше ', 'loop': True}, '_config': cfg}, path=CONFIG)
-        self.assertEqual((cfg['config_param'], cfg['config_value'], cfg['loop']), (u'Моя', u'Інше', 'true'))
+        run_button(w, {'_form': {'value': u' Спіральний ', 'loop': True}, '_config': cfg}, path=CONFIG)
+        self.assertEqual((cfg['config_value'], cfg['loop']), (u'Спіральний', 'true'))
 
     def test_config_window_reflects_saved_values_and_can_turn_loop_off(self):
         w = scenario()
-        cfg = {'loop': 'true', 'config_param': u'П', 'config_value': u'З'}
-        run_button(w, {'_form': {'name': u'П', 'value': u'З', 'loop': False}, '_config': cfg}, path=CONFIG)
-        self.assertTrue(w.form.loop)
+        cfg = {'loop': 'true', 'config_value': u'З'}
+        run_button(w, {'_form': {'value': u'З', 'loop': False}, '_config': cfg}, path=CONFIG)
+        self.assertEqual((w.form.value, w.form.loop), (u'З', True))
         self.assertEqual(cfg['loop'], 'false')
 
     def test_config_window_closed_changes_nothing(self):
@@ -699,19 +835,21 @@ class FlexButtonTests(unittest.TestCase):
             run_button(w, {'_config': cfg}, path=CONFIG)
         self.assertEqual(cfg, {'config_value': u'З'})
 
-    def test_config_window_wpf_failure_falls_back_to_dialogs_and_is_logged(self):
+    def test_config_window_wpf_failure_falls_back_to_options_list(self):
         w = scenario()
+        self._project_with_enum(w)
         cfg = {}
-        run_button(w, {'_wpf_crash': True, '_ask_values': [u'Назва', u'Значення'], '_alert_result': True,
-                       '_config': cfg}, path=CONFIG)
-        self.assertEqual((cfg['config_param'], cfg['config_value'], cfg['loop']), (u'Назва', u'Значення', 'true'))
+        run_button(w, {'_wpf_crash': True, u'Гибкая конфигурация': u'Спіральний', '_alert_result': True, '_config': cfg},
+                   path=CONFIG)
+        self.assertEqual((cfg['config_value'], cfg['loop']), (u'Спіральний', 'true'))
+        self.assertEqual([l[2] for l in w.log if l[0] == 'select'][0][0], u'Гибкий')   # поточне — першим
         self.assertIn(u'XAML не розібрано', self._log_text())
 
-    def test_config_works_when_forms_has_no_wpfwindow_attribute(self):
+    def test_config_dialogs_without_options_ask_for_text(self):
         w = scenario()
         cfg = {}
-        run_button(w, {'_no_wpf': True, '_ask_values': [u'Н', u''], '_alert_result': False, '_config': cfg}, path=CONFIG)
-        self.assertEqual((cfg['config_param'], cfg['config_value'], cfg['loop']), (u'Н', u'', 'false'))
+        run_button(w, {'_no_wpf': True, '_ask_values': [u'Текст'], '_alert_result': False, '_config': cfg}, path=CONFIG)
+        self.assertEqual((cfg['config_value'], cfg['loop']), (u'Текст', 'false'))
 
     def test_config_dialogs_cancel_changes_nothing(self):
         w = scenario()
@@ -989,24 +1127,18 @@ class SettingsModuleTests(unittest.TestCase):
 class ConfigSettingsTests(unittest.TestCase):
     def test_defaults(self):
         c = SettingsModuleTests.Cfg()
-        self.assertEqual(hvac_flex_settings.get_config_param(c), u'Гибкая конфигурация')
         self.assertEqual(hvac_flex_settings.get_config_value(c), u'Гибкий')
+        self.assertEqual(hvac_flex_settings.BUILTIN_PARAM, 'RBS_FLEX_PATTERN_PARAM')
 
-    def test_roundtrip_strips_spaces(self):
+    def test_roundtrip_strips_spaces_and_keeps_empty(self):
         c = SettingsModuleTests.Cfg()
-        hvac_flex_settings.set_config(c, u' Назва ', u' Знач ')
-        self.assertEqual((hvac_flex_settings.get_config_param(c), hvac_flex_settings.get_config_value(c)),
-                         (u'Назва', u'Знач'))
-
-    def test_empty_value_stays_empty_but_empty_name_falls_back_to_default(self):
-        c = SettingsModuleTests.Cfg(config_param=u'  ', config_value=u'')
+        hvac_flex_settings.set_config_value(c, u' Знач ')
+        self.assertEqual(hvac_flex_settings.get_config_value(c), u'Знач')
+        hvac_flex_settings.set_config_value(c, u'')
         self.assertEqual(hvac_flex_settings.get_config_value(c), u'')
-        self.assertEqual(hvac_flex_settings.get_config_param(c), u'Гибкая конфигурация')
 
-    def test_read_errors_give_defaults(self):
-        b = SettingsModuleTests.Broken()
-        self.assertEqual(hvac_flex_settings.get_config_value(b), u'Гибкий')
-        self.assertEqual(hvac_flex_settings.get_config_param(b), u'Гибкая конфигурация')
+    def test_read_error_gives_default(self):
+        self.assertEqual(hvac_flex_settings.get_config_value(SettingsModuleTests.Broken()), u'Гибкий')
 
 
 class FlexButtonSourceTests(unittest.TestCase):

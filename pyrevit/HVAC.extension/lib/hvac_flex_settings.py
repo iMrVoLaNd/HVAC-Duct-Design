@@ -25,34 +25,24 @@ def set_loop(cfg, value):
     cfg.set_option(LOOP_KEY, 'true' if value else 'false')
 
 
-# ---------- параметр «Гибкая конфигурация» ----------
-# Після побудови гнучкого повітровода кнопка записує значення в цей параметр (спершу шукає його в екземплярі,
-# потім у типі). Порожнє значення — параметр не чіпати. Тип гнучкого повітровода обирається при кожному запуску кнопки.
+# ---------- параметр «Гибкая конфигурация» (BuiltInParameter.RBS_FLEX_PATTERN_PARAM) ----------
+# Після побудови гнучкого повітровода кнопка записує це значення в параметр (спершу шукає його в екземплярі, потім
+# у типі). Порожнє значення — параметр не чіпати. Тип гнучкого повітровода обирається при кожному запуску кнопки.
 
-CONFIG_PARAM_KEY = 'config_param'
 CONFIG_VALUE_KEY = 'config_value'
-DEFAULT_CONFIG_PARAM = u'Гибкая конфигурация'
 DEFAULT_CONFIG_VALUE = u'Гибкий'
-
-
-def _text_option(cfg, key, default):
-    try:
-        value = cfg.get_option(key, None)
-    except Exception:
-        value = None
-    return default if value is None else value
-
-
-def get_config_param(cfg):
-    """Ім'я параметра; порожнє в налаштуваннях = значення за замовчуванням."""
-    return _text_option(cfg, CONFIG_PARAM_KEY, DEFAULT_CONFIG_PARAM).strip() or DEFAULT_CONFIG_PARAM
+BUILTIN_PARAM = 'RBS_FLEX_PATTERN_PARAM'       # BuiltInParameter, не залежить від мови Revit
+FALLBACK_PARAM_NAME = u'Гибкая конфигурация'   # якщо вбудованого параметра не знайдено — шукаємо за назвою
 
 
 def get_config_value(cfg):
-    """Значення параметра; НЕ підставляємо default для порожнього (порожнє = «не чіпати параметр»)."""
-    return _text_option(cfg, CONFIG_VALUE_KEY, DEFAULT_CONFIG_VALUE).strip()
+    """Значення параметра; порожнє зберігається порожнім (= «не чіпати параметр»)."""
+    try:
+        value = cfg.get_option(CONFIG_VALUE_KEY, None)
+    except Exception:
+        value = None
+    return DEFAULT_CONFIG_VALUE if value is None else value.strip()
 
 
-def set_config(cfg, name, value):
-    cfg.set_option(CONFIG_PARAM_KEY, name.strip())
+def set_config_value(cfg, value):
     cfg.set_option(CONFIG_VALUE_KEY, value.strip())

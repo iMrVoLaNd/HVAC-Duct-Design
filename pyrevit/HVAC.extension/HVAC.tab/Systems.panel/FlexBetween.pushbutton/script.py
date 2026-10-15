@@ -36,6 +36,7 @@ try:
 
     import hvac_flex_settings
     import hvac_revit
+    import hvac_revit
 except Exception:
     hvac_log.log_exception(TOOL, u'імпорт модулів')
     raise
@@ -310,10 +311,15 @@ def set_param_text(p, value):
         try:
             return bool(p.Set(int(value)))
         except ValueError:
-            return bool(p.SetValueString(value))
+            return hvac_revit.set_enum_by_text(p, value, refresh=doc.Regenerate)
     if st == DB.StorageType.Double:
         return bool(p.SetValueString(value))
     return False            # ElementId та інше — не підтримуємо
+
+
+def find_config_param(el):
+    """Параметр «Гибкая конфигурация»: вбудований RBS_FLEX_PATTERN_PARAM, а якщо його немає — за назвою."""
+    return hvac_revit.find_param(DB, el, hvac_flex_settings.BUILTIN_PARAM, hvac_flex_settings.FALLBACK_PARAM_NAME)
 
 
 def dump_parameter_names(flex, type_el):
@@ -328,13 +334,14 @@ def dump_parameter_names(flex, type_el):
 
 def apply_config_param(flex, state):
     """Записати «Гибкая конфигурация» у щойно створений гнучкий повітровод. Ніколи не ламає побудову."""
-    name, value = state['param'], state['value']
+    value = state['value']
+    name = hvac_flex_settings.FALLBACK_PARAM_NAME
     if not value:
         return
     try:
         type_el = doc.GetElement(flex.GetTypeId())
         for label, el in ((u'екземпляр', flex), (u'тип', type_el)):
-            p = el.LookupParameter(name)
+            p = find_config_param(el)
             if p is None:
                 continue
             if p.IsReadOnly:
@@ -342,18 +349,17 @@ def apply_config_param(flex, state):
                 state['warnings'].append(u'Параметр «{0}» тільки для читання.'.format(name))
                 return
             before = param_text(p)
-            if before == value:
+            if before.strip().lower() == value.lower():
                 hvac_log.log(TOOL, u'«{0}» ({1}) вже = «{2}»'.format(name, label, value))
                 return
             if set_param_text(p, value):
                 hvac_log.log(TOOL, u'«{0}» ({1}): «{2}» → «{3}»'.format(name, label, before, value))
             else:
-                hvac_log.log(TOOL, u'«{0}» ({1}): значення «{2}» не прийнято'.format(name, label, value))
+                hvac_log.log(TOOL, u'«{0}» ({1}): значення «{2}» не прийнято (було «{3}»)'.format(name, label, value, before))
                 state['warnings'].append(u'Параметр «{0}»: значення «{1}» не прийнято.'.format(name, value))
             return
-        hvac_log.log(TOOL, u'параметра «{0}» немає ні в екземплярі, ні в типі'.format(name))
-        state['warnings'].append(u'Параметра «{0}» не знайдено (перевірте назву у вікні налаштувань; '
-                                 u'список параметрів — у журналі).'.format(name))
+        hvac_log.log(TOOL, u'параметра «{0}» (RBS_FLEX_PATTERN_PARAM) немає ні в екземплярі, ні в типі'.format(name))
+        state['warnings'].append(u'Параметра «{0}» не знайдено (список параметрів — у журналі).'.format(name))
         if not state['dumped']:
             state['dumped'] = True
             dump_parameter_names(flex, type_el)
@@ -395,14 +401,13 @@ def main():
     cfg = script.get_config(CONFIG_SECTION)
     # Тип гнучкого повітровода — вибір після натискання кнопки (останній обраний стоїть першим; один тип — без питання).
     flex_type = choose_from(types, [type_name(t) for t in types], u'Тип гнучкого повітровода:', 'flex_type')
-    config_param = hvac_flex_settings.get_config_param(cfg)
     config_value = hvac_flex_settings.get_config_value(cfg)
     # Режим циклу — галочка у вікні налаштувань (Shift+клік), за замовчуванням вимкнено.
     loop = hvac_flex_settings.is_loop(cfg)
-    hvac_log.log(TOOL, u'тип «{0}», «{1}» = «{2}», цикл {3}, журнал {4}'.format(
-        type_name(flex_type), config_param, config_value, loop, hvac_log.log_path()))
+    hvac_log.log(TOOL, u'тип «{0}», «Гибкая конфигурация» = «{1}», цикл {2}, журнал {3}'.format(
+        type_name(flex_type), config_value, loop, hvac_log.log_path()))
     tail = u'Esc — завершити' if loop else u'Esc — скасувати'
-    system_state = {'id': None, 'param': config_param, 'value': config_value, 'warnings': [], 'dumped': False}
+    system_state = {'id': None, 'value': config_value, 'warnings': [], 'dumped': False}
     made = 0
     while True:
         try:

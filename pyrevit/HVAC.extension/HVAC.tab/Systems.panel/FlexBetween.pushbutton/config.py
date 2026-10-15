@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Вікно налаштувань кнопки «Гнучкий між конекторами» (відкривається Shift+кліком по кнопці):
-параметр «Гибкая конфигурация» (за замовчуванням значення «Гибкий») і перемикач «Цикл» (за замовчуванням вимкнено).
+параметр «Гибкая конфигурация» (RBS_FLEX_PATTERN_PARAM; за замовчуванням значення «Гибкий») і перемикач «Цикл» (за замовчуванням вимкнено).
 Тип гнучкого повітровода тут не налаштовується: його обирають після натискання кнопки."""
 # Сумісно з IronPython 3.4 (pyRevit) і CPython: без f-рядків та сучасного синтаксису.
 import os
@@ -26,6 +26,7 @@ try:
     from pyrevit import revit, DB, forms, script
 
     import hvac_flex_settings
+    import hvac_revit
 except Exception:
     hvac_log.log_exception(TOOL, u'імпорт модулів')
     raise
@@ -41,10 +42,9 @@ XAML = u"""
         Title="Гнучкий повітровод — налаштування" Width="440" SizeToContent="Height"
         WindowStartupLocation="CenterScreen" ResizeMode="NoResize" ShowInTaskbar="False">
   <StackPanel Margin="16">
-    <TextBlock Text="Параметр гнучкого повітровода:" Margin="0,0,0,4"/>
-    <TextBox x:Name="param_name" Margin="0,0,0,10"/>
-    <TextBlock Text="Значення (порожньо — параметр не чіпати):" Margin="0,0,0,4"/>
-    <TextBox x:Name="param_value" Margin="0,0,0,14"/>
+    <TextBlock Text="Параметр «Гибкая конфигурация» (RBS_FLEX_PATTERN_PARAM) — значення:" Margin="0,0,0,4"/>
+    <TextBlock Text="(порожньо — параметр не чіпати)" Margin="0,0,0,4" Opacity="0.6"/>
+    <ComboBox x:Name="param_value" IsEditable="True" Margin="0,0,0,14"/>
     <CheckBox x:Name="loop" Content="Цикл: будувати пари поспіль, поки не натиснуто Esc" Margin="0,0,0,16"/>
     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
       <Button x:Name="save_btn" Content="Зберегти" Width="100" Margin="0,0,8,0" IsDefault="True"/>
@@ -55,22 +55,46 @@ XAML = u"""
 """
 
 
-def ask_with_window(name, value, loop):
-    """Власне WPF-вікно: назва параметра, його значення, галочка «Цикл», кнопки «Зберегти» / «Скасувати».
-    Повертає (назва, значення, цикл) або None, якщо вікно закрито без збереження."""
+def read_options():
+    """Варіанти параметра «Гибкая конфигурация» з проєкту: перебір значень у транзакції, яку відкочуємо.
+    Береться перший гнучкий повітровод (або тип) із цим параметром. Немає такого — порожній список."""
+    try:
+        for cls in (DB.Mechanical.FlexDuct, DB.Mechanical.FlexDuctType):
+            for el in DB.FilteredElementCollector(doc).OfClass(cls):
+                p = hvac_revit.find_param(DB, el, hvac_flex_settings.BUILTIN_PARAM,
+                                          hvac_flex_settings.FALLBACK_PARAM_NAME)
+                if p is None or p.StorageType != DB.StorageType.Integer:
+                    continue
+                t = DB.Transaction(doc, u'Варіанти параметра (відкат)')
+                t.Start()
+                try:
+                    options = [text for _num, text in hvac_revit.enum_options(p, refresh=doc.Regenerate)]
+                finally:
+                    t.RollBack()
+                hvac_log.log(TOOL, u'варіанти параметра: {0}'.format(u'; '.join(options) or u'(не знайдено)'))
+                return options
+    except Exception:
+        hvac_log.log_exception(TOOL, u'читання варіантів параметра (не критично)')
+    return []
+
+
+def ask_with_window(value, loop, options):
+    """Власне WPF-вікно: значення параметра, галочка «Цикл», кнопки «Зберегти» / «Скасувати».
+    Повертає (значення, цикл) або None, якщо вікно закрито без збереження."""
 
     class SettingsWindow(forms.WPFWindow):
         def __init__(self):
             forms.WPFWindow.__init__(self, XAML, literal_string=True)
             self.result = None
-            self.FindName('param_name').Text = name
-            self.FindName('param_value').Text = value
+            combo = self.FindName('param_value')
+            for option in options:
+                combo.Items.Add(option)
+            combo.Text = value
             self.FindName('loop').IsChecked = bool(loop)
             self.FindName('save_btn').Click += self.on_save
 
         def on_save(self, sender, args):
-            self.result = (self.FindName('param_name').Text or u'', self.FindName('param_value').Text or u'',
-                           bool(self.FindName('loop').IsChecked))
+            self.result = (self.FindName('param_value').Text or u'', bool(self.FindName('loop').IsChecked))
             self.Close()
 
     win = SettingsWindow()
@@ -78,37 +102,40 @@ def ask_with_window(name, value, loop):
     return win.result
 
 
-def ask_with_dialogs(name, value, loop):
+def ask_with_dialogs(value, loop, options):
     """Запасний варіант на стандартних діалогах pyRevit — якщо власне вікно не вдалося створити."""
-    new_name = forms.ask_for_string(default=name, prompt=u'Назва параметра гнучкого повітровода:', title=TITLE)
-    if new_name is None:
-        return None
-    new_value = forms.ask_for_string(default=value, prompt=u'Значення (порожньо — параметр не чіпати):', title=TITLE)
+    if options:
+        ordered = [value] + [o for o in options if o != value] if value in options else list(options)
+        new_value = forms.SelectFromList.show(ordered, title=u'«Гибкая конфигурация» (зараз: «{0}»)'.format(value),
+                                              button_name=u'Далі', multiselect=False)
+    else:
+        new_value = forms.ask_for_string(default=value,
+                                         prompt=u'«Гибкая конфигурация» — значення (порожньо — не чіпати):', title=TITLE)
     if new_value is None:
         return None
     loop_on = forms.alert(u'Режим «Цикл» (пари поспіль, поки не натиснуто Esc).\nЗараз: {0}.\n\nУвімкнути?'
                           .format(u'увімкнено' if loop else u'вимкнено'), title=TITLE, yes=True, no=True)
-    return new_name, new_value, bool(loop_on)
+    return new_value, bool(loop_on)
 
 
 def main():
     cfg = script.get_config(CONFIG_SECTION)
-    name = hvac_flex_settings.get_config_param(cfg)
     value = hvac_flex_settings.get_config_value(cfg)
     loop = hvac_flex_settings.is_loop(cfg)
 
+    options = read_options()
     try:
-        result = ask_with_window(name, value, loop)
+        result = ask_with_window(value, loop, options)
     except Exception:
         hvac_log.log_exception(TOOL, u'вікно налаштувань (WPF) не вдалося, беру стандартні діалоги')
-        result = ask_with_dialogs(name, value, loop)
+        result = ask_with_dialogs(value, loop, options)
     if result is None:                        # вікно закрито без збереження — нічого не змінюємо
         hvac_log.log(TOOL, u'налаштування не змінено')
         script.exit()
-    hvac_flex_settings.set_config(cfg, result[0], result[1])
-    hvac_flex_settings.set_loop(cfg, result[2])
+    hvac_flex_settings.set_config_value(cfg, result[0])
+    hvac_flex_settings.set_loop(cfg, result[1])
     script.save_config()
-    hvac_log.log(TOOL, u'збережено: «{0}» = «{1}», цикл {2}'.format(result[0], result[1], result[2]))
+    hvac_log.log(TOOL, u'збережено: «Гибкая конфигурация» = «{0}», цикл {1}'.format(result[0], result[1]))
 
 
 hvac_log.run(TOOL, main, doc)
