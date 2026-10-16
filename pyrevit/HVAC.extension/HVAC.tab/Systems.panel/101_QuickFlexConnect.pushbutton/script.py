@@ -62,7 +62,7 @@ class _LazyForms(object):
 
 
 forms = _LazyForms()
-hvac_dialog.configure(forms=forms, select=lambda i: hvac_revit.select_and_show(uidoc, DB, List, i),
+hvac_dialog.configure(forms=forms, select=lambda i: hvac_revit.select_element(uidoc, DB, List, i),
                       log_path=hvac_log.log_path, strings=hvac_dialog.RU)       # окна сообщений — в общем стиле, ссылки на элементы и журнал
 
 

@@ -107,13 +107,8 @@ def set_enum_by_text(p, text, refresh=None, hint=None, trust_hint=False):
     return None
 
 
-def select_and_show(uidoc, DB, List, element_id):
-    """Выделить элемент в модели по числовому id и показать его на активном виде (приблизить)."""
-    eid = DB.ElementId(int(element_id))
+def select_element(uidoc, DB, List, element_id):
+    """Выделить элемент в модели по числовому id. Больше ничего: не приближаем вид и не открываем окон."""
     ids = List[DB.ElementId]()
-    ids.Add(eid)
+    ids.Add(DB.ElementId(int(element_id)))
     uidoc.Selection.SetElementIds(ids)
-    try:
-        uidoc.ShowElements(eid)
-    except Exception:
-        pass                                  # выделили — уже хорошо; показать не вышло (другой вид и т.п.)

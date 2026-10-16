@@ -117,7 +117,6 @@ _RESOURCES = u'''
             <ControlTemplate.Triggers>
               <Trigger Property="IsMouseOver" Value="True">
                 <Setter TargetName="tx" Property="Foreground" Value="@NAVY@"/>
-                <Setter TargetName="tx" Property="FontWeight" Value="SemiBold"/>
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>

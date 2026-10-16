@@ -153,6 +153,17 @@ class XamlTests(unittest.TestCase):
         for part in (u'WindowStyle="None"', u'x:Key="Link"', u'x:Name="title_bar"', u'Background="#14213D"'):
             self.assertIn(part, xaml)
 
+    def test_link_does_not_change_size_on_hover(self):
+        xaml = dlg.build_xaml(dlg.Message(dlg.INFO, u'T', u'H', elements=[(u'a', 1)]))
+        link = xaml[xaml.index(u'x:Key="Link"'):]
+        link = link[:link.index(u'</Style>')]
+        self.assertNotIn(u'FontWeight', link)
+        self.assertNotIn(u'FontSize', link)
+
+    def test_status_line_has_reserved_height_so_window_does_not_jump(self):
+        xaml = dlg.build_xaml(dlg.Message(dlg.INFO, u'T', u'H'))
+        self.assertRegex(xaml, u'x:Name="status"[^>]*MinHeight="20"')
+
     def test_kind_colors_have_enough_contrast(self):
         def lum(h):
             h = h.lstrip('#')
@@ -180,13 +191,13 @@ class WindowTests(Base):
         self.assertEqual(state.windows[0].Title, u'Кнопка')
         self.assertTrue(res)
 
-    def test_click_on_element_selects_it_in_model(self):
+    def test_click_on_element_just_selects_it_without_any_message(self):
         def clicks(win):
             win.ctl['elem1'].Click.fire()
             win.ctl['elem0'].Click.fire()
         _res, state = self.run_dialog(lambda: dlg.show(self.message()), clicks)
         self.assertEqual(self.selected, [22, 11])
-        self.assertEqual(state.windows[0].ctl['status'].Text, u'Элемент выделен в модели.')
+        self.assertEqual(state.windows[0].ctl['status'].Text, u'')                  # выделили молча, без сообщений
 
     def test_selection_failure_is_explained_not_raised(self):
         def boom(i):
@@ -344,7 +355,7 @@ class HelpersTests(Base):
 
 
 class RevitSelectTests(unittest.TestCase):
-    def test_select_and_show_sets_selection_and_zooms(self):
+    def test_select_element_only_selects(self):
         calls = []
 
         class Ids(list):
@@ -355,31 +366,13 @@ class RevitSelectTests(unittest.TestCase):
             def __class_getitem__(cls, item):
                 return Ids
 
+        def forbidden(*a):
+            raise AssertionError('вид приближать не нужно')
         DB = types.SimpleNamespace(ElementId=lambda n: ('id', n))
         uidoc = types.SimpleNamespace(
-            Selection=types.SimpleNamespace(SetElementIds=lambda ids: calls.append(('select', list(ids)))),
-            ShowElements=lambda eid: calls.append(('show', eid)))
-        hvac_revit.select_and_show(uidoc, DB, ListOf, 1234)
-        self.assertEqual(calls, [('select', [('id', 1234)]), ('show', ('id', 1234))])
-
-    def test_zoom_failure_does_not_undo_selection(self):
-        calls = []
-
-        class Ids(list):
-            def Add(self, x):
-                self.append(x)
-
-        class ListOf(object):
-            def __class_getitem__(cls, item):
-                return Ids
-
-        def boom(eid):
-            raise RuntimeError('другой вид')
-        DB = types.SimpleNamespace(ElementId=lambda n: n)
-        uidoc = types.SimpleNamespace(Selection=types.SimpleNamespace(SetElementIds=lambda ids: calls.append(list(ids))),
-                                      ShowElements=boom)
-        hvac_revit.select_and_show(uidoc, DB, ListOf, 5)
-        self.assertEqual(calls, [[5]])
+            Selection=types.SimpleNamespace(SetElementIds=lambda ids: calls.append(list(ids))), ShowElements=forbidden)
+        hvac_revit.select_element(uidoc, DB, ListOf, 1234)
+        self.assertEqual(calls, [[('id', 1234)]])
 
 
 if __name__ == '__main__':

@@ -3,7 +3,7 @@
 
 Вместо стандартных диалогов pyRevit и окна вывода. Что умеет окно:
   * цветная метка вида сообщения («Информация», «Внимание», «Ошибка»), заголовок и пояснение;
-  * список элементов: каждый — ссылка с названием и id; клик выделяет элемент в модели и показывает его;
+  * список элементов: каждый — ссылка с названием и id; клик просто выделяет элемент в модели (вид не двигается, окон и сообщений нет);
   * подробности (например, traceback) в поле, из которого можно выделять и копировать текст;
   * кнопка «Копировать» — весь текст сообщения целиком в буфер обмена;
   * кнопка «Открыть журнал» — файл журнала кнопки;
@@ -11,7 +11,7 @@
 
 Подключение в кнопке (после импорта pyrevit):
 
-    hvac_dialog.configure(forms=forms, select=lambda i: hvac_revit.select_and_show(uidoc, DB, List, i),
+    hvac_dialog.configure(forms=forms, select=lambda i: hvac_revit.select_element(uidoc, DB, List, i),
                           log_path=hvac_log.log_path)
     hvac_dialog.warn(u'Заголовок\\nпояснение', title=u'FlexTail', elements=[(u'Воздуховоды · id 1', 1)])
 
@@ -161,7 +161,7 @@ def build_xaml(msg):
         parts.append(hvac_ui.label(S('details'), u'0,8,0,4'))
         parts.append(u'      <TextBox x:Name="details" IsReadOnly="True" TextWrapping="Wrap" AcceptsReturn="True" '
                      u'VerticalScrollBarVisibility="Auto" MaxHeight="190" FontFamily="Consolas" FontSize="12"/>')
-    parts.append(u'      <TextBlock x:Name="status" Style="{StaticResource Muted}" Margin="0,8,0,0"/>')
+    parts.append(u'      <TextBlock x:Name="status" Style="{StaticResource Muted}" Margin="0,8,0,0" MinHeight="20"/>')
     left = [u'        <Button x:Name="copy_btn" Content="%s" Margin="0,0,8,0"/>' % hvac_ui.escape(S('copy'))]
     if msg.log:
         left.append(u'        <Button x:Name="log_btn" Content="%s" Margin="0,0,8,0"/>' % hvac_ui.escape(S('log')))
@@ -250,7 +250,6 @@ def _show_window(forms, msg):
             for i, (label, element_id) in enumerate(shown):
                 button = self.FindName('elem%d' % i)
                 button.Content = label
-                button.ToolTip = S('select_tip')
                 button.Click += self.element_handler(element_id)
             if len(msg.elements) > MAX_ELEMENTS:
                 hvac_ui.set_text(self, 'more', S('more').format(len(msg.elements) - MAX_ELEMENTS))
@@ -270,8 +269,8 @@ def _show_window(forms, msg):
 
         def element_handler(self, element_id):
             def handler(sender, args):
-                ok = select_element(element_id)
-                self.status(S('selected') if ok else S('select_fail'))
+                if not select_element(element_id):            # получилось — молча: просто выделили элемент
+                    self.status(S('select_fail'))
             return handler
 
         def on_copy(self, sender, args):
