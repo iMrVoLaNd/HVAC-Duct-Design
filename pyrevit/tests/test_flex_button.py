@@ -1970,6 +1970,37 @@ class FlexButtonTests(unittest.TestCase):
         self.assertIn(u'немає вільних конекторів:', self._log_text())
         self.assertIn(u'подключён', self._log_text())                          # у журналі — деталі конекторів
 
+    def test_first_element_without_free_connectors_is_reported_before_second_click(self):
+        w = scenario()
+        busy = FakeDuct(60, [Connector(None, XYZ(1, 1, 1), XYZ(1, 0, 0), connected=True)])
+        w.elements[60] = busy
+        w.picks = [busy, w.b]
+        run_button(w)
+        self.assertEqual(len([l for l in w.log if l[0] == 'pick']), 1)           # второй клик не запрашивался
+        self.assertEqual(w.picks, [w.b])                                          # второй элемент остался невыбранным
+        self.assertEqual(len(w.alerts), 1)
+        self.assertIn(u'У первого элемента нет свободных коннекторов', w.alerts[0])
+        self.assertIn(u'свободных 0', w.alerts[0])
+        self.assertEqual(w.created, [])
+
+    def test_in_loop_mode_first_busy_element_asks_for_first_again(self):
+        w = scenario()
+        busy = FakeDuct(60, [Connector(None, XYZ(1, 1, 1), XYZ(1, 0, 0), connected=True)])
+        w.elements[60] = busy
+        w.picks = [busy, w.a, w.b, Cancelled]
+        run_button(w, loop=True)
+        self.assertEqual(len(w.alerts), 1)
+        self.assertEqual(len(w.created), 1)                                       # со второй попытки пара построена
+
+    def test_second_busy_element_is_still_reported_after_second_click(self):
+        w = scenario()
+        busy = FakeDuct(60, [Connector(None, XYZ(1, 1, 1), XYZ(1, 0, 0), connected=True)])
+        w.elements[60] = busy
+        w.picks = [w.a, busy]
+        run_button(w)
+        self.assertEqual(len([l for l in w.log if l[0] == 'pick']), 2)
+        self.assertTrue(any(u'свободных 0' in a for a in w.alerts))
+
     def test_element_without_hvac_connectors_is_rejected_and_logged(self):
         w = scenario()
         pipe_only = FakeDuct(61, [Connector(None, XYZ(1, 1, 1), XYZ(1, 0, 0), domain=Domain.DomainPiping)])

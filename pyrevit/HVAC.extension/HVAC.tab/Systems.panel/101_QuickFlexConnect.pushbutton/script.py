@@ -329,10 +329,10 @@ def describe_pick(el, point):
         return category_name(el)
 
 
-def explain_no_free(e0, e1):
+def explain_no_free(*elements):
     """Чому пару не знайдено: який елемент без вільних конекторів і що з його конекторами (у журнал і в діалог)."""
     lines = []
-    for e in (e0, e1):
+    for e in elements:
         if not free_connectors(e):
             conns = element_connectors(e)
             hvac_log.log(TOOL, u'немає вільних конекторів: {0} id {1}; конектори: {2}'.format(
@@ -1039,6 +1039,14 @@ def main():
             pair_no = u'пара {0}: '.format(made + 1) if loop else u''
             e0, p0 = pick_element(u'QuickFlexConnect · {0}1/2 — кликните по первому элементу, будет взят ближайший '
                                   u'к клику коннектор ({1})'.format(pair_no, tail))
+            if not free_connectors(e0):                  # у первого нет свободных коннекторов — второй клик не нужен
+                hvac_log.log(TOOL, u'у первого элемента нет свободных коннекторов, второй клик не запрашиваем')
+                forms.alert(u'У первого элемента нет свободных коннекторов:\n{0}\n\nВторой элемент выбирать не нужно '
+                            u'(выберите другой первый элемент).\n\nЖурнал: {1}'.format(
+                                explain_no_free(e0), hvac_log.log_path()), title=u'QuickFlexConnect')
+                if loop:
+                    continue
+                break
             first = describe_pick(e0, p0)
             e1, p1 = pick_element(u'QuickFlexConnect · {0}2/2 — первый: {1}. Кликните по второму элементу, будет взят '
                                   u'ближайший к клику коннектор ({2})'.format(pair_no, first, tail))
