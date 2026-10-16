@@ -113,6 +113,28 @@ class ConnSet(list):
     pass
 
 
+class LogicalConn(object):
+    """Логический коннектор системы: Connector.AllRefs у реального Revit возвращает и его; вместе с удалённым
+    воздуховодом он становится недействительным, и обращение к нему даёт исключение."""
+    is_logical = True
+
+    def __init__(self, system):
+        self.Owner, self.ConnectorType, self.Domain = system, 'logical', HVAC
+        self.refs, self.valid = [], True
+
+    @property
+    def Origin(self):
+        if not self.valid:
+            raise RuntimeError('The referenced object is not valid, possibly because it has been deleted from the database')
+        return XYZ(0, 0, 0)
+
+    def disconnect(self):
+        for r in list(self.refs):
+            if self in r.refs:
+                r.refs.remove(self)
+        self.refs = []
+
+
 class Element(object):
     _bips = None
 
@@ -253,6 +275,7 @@ def run_button(world, answers=None):
     DB = types.SimpleNamespace()
     DB.XYZ = XYZ
     DB.MEPCurve, DB.FamilyInstance = CurveBase, Equip
+    DB.ConnectorType = types.SimpleNamespace(End=END, Physical='physical', Logical='logical')
 
     class Cats(object):
         def __getattr__(self, name):
@@ -359,6 +382,9 @@ def run_button(world, answers=None):
     def delete(eid):
         el = world.elements.pop(eid.Value)
         for c in el.conns():
+            for r in c.refs:
+                if getattr(r, 'is_logical', False):
+                    r.valid = False                      # логическая связь с системой исчезает вместе с воздуховодом
             c.disconnect()
         world.deleted.append(eid.Value)
 
@@ -546,8 +572,19 @@ def scene(duct_mm=2000, radius_mm=100, reversed_duct=False):
     tc = tee.add(Conn(None, far, XYZ(-1, 0, 0), radius_mm=radius_mm))
     tee.add(Conn(None, XYZ(duct_mm * MM, 0, 1), XYZ(0, 0, 1), radius_mm=radius_mm))
     far_c.ConnectTo(tc)
+    system_el = types.SimpleNamespace(Id=EId(500))
+    for c in (near_c, far_c):                              # как в Revit: AllRefs содержит и логический коннектор системы
+        lc = LogicalConn(system_el)
+        c.refs.append(lc)
+        lc.refs.append(c)
     w.elements = {1: eq, 2: duct, 3: tee}
     w.eq, w.duct, w.tee, w.ce, w.near_c, w.far_c, w.tc = eq, duct, tee, ce, near_c, far_c, tc
+
+    def free_far_end():
+        """За дальним концом воздуховода нет никакого элемента (логическая связь с системой остаётся)."""
+        far_c.refs.remove(tc)
+        tc.refs.remove(far_c)
+    w.free_far_end = free_far_end
     return w
 
 
@@ -698,11 +735,61 @@ class FlexTailTests(unittest.TestCase):
 
     def test_whole_conversion_without_far_neighbour(self):
         w = scene(300)
-        w.far_c.disconnect()
+        w.free_far_end()
         click(w)
         self.go(w)
         self.assertEqual(w.created[0].conns()[1].refs, [])
         self.assertEqual(w.tx, ['start', 'commit'])
+
+    def test_free_far_end_with_system_logical_connector_converts_whole(self):
+        """Баг из Revit: воздуховод 1260 мм, нужно 1500 мм, за дальним концом ничего нет. AllRefs отдавал логический
+        коннектор системы, он исчезал вместе с воздуховодом, и подключение падало «The referenced object is not valid»."""
+        w = scene(1260, radius_mm=62.5)
+        w.free_far_end()
+        click(w)
+        self.go(w, {'_window': [{'length': '1500'}]})
+        self.assertEqual(len(w.created), 1)
+        self.assertEqual(w.tx, ['start', 'commit'])
+        self.assertEqual(w.deleted, [2])
+        near_end, far_end = w.created[0].conns()
+        self.assertEqual((near_end.refs, far_end.refs), ([w.ce], []))
+        self.assertEqual(w.created[0].created_with['points'][1], (round(1260 * MM, 6), 0, 0))
+        self.assertTrue(any(u'1260' in a and u'1500' in a for a in w.alerts))      # сообщение про короткий участок
+
+    def test_free_far_end_on_split_also_works(self):
+        w = scene(3000)
+        w.free_far_end()
+        click(w)
+        self.go(w)
+        self.assertEqual(len(w.created), 1)
+        self.assertEqual(w.tx, ['start', 'commit'])
+
+    def test_invalid_target_connector_is_skipped_not_fatal(self):
+        w = scene(300)
+        click(w)
+        self.go(w)                                                             # подключение к тройнику по-прежнему есть
+        self.assertEqual(w.created[0].conns()[1].refs, [w.tc])
+        ns = w.ns
+        gone = LogicalConn(types.SimpleNamespace(Id=EId(501)))
+        gone.valid = False
+        flex = FlexInst(990, [XYZ(0, 0, 0), XYZ(1, 0, 0)], w.flex_types[0])
+        ns['connect_ends'](flex, [w.ce, gone])                                 # недействительный коннектор — пропуск
+        self.assertEqual(flex.conns()[0].refs, [w.ce])
+        self.assertIn(u'недействителен', self.log_text())
+
+    def test_logical_connectors_are_not_reported_as_connected_elements(self):
+        w = scene(2000)
+        lonely = Equip(61, level=EId(100))
+        c = lonely.add(Conn(None, XYZ(5, 0, 0), XYZ(1, 0, 0)))
+        lc = LogicalConn(types.SimpleNamespace(Id=EId(502), Category=types.SimpleNamespace(Name='Система П1')))
+        c.refs.append(lc)
+        lc.refs.append(c)
+        w.elements[61] = lonely
+        w.picks = [(lonely, XYZ(5, 0, 0)), Cancelled]
+        run_button(w)
+        self.assertIn(u'не подключён воздуховод', w.alerts[0])
+        self.assertNotIn(u'Система П1', w.alerts[0])
+        self.assertNotIn(u'не жёсткий', w.alerts[0])
 
     def test_exact_length_is_whole_without_message(self):
         w = scene(500)

@@ -38,6 +38,7 @@ try:
     import hvac_flex_settings
     import hvac_revit
     import hvac_sizes
+    import hvac_ui
 except Exception:
     hvac_log.log_exception(TOOL, u'імпорт модулів')
     raise
@@ -337,6 +338,22 @@ def explain_no_free(e0, e1):
     return u'\n'.join(lines)
 
 
+def size_text(size):
+    """«Ø200 мм», «400×200 мм»; неизвестное сечение — «?»."""
+    return hvac_ui.size_text(hvac_sizes.label(size), size.get('shape') is not None)
+
+
+def pair_info(e0, e1, s0, s1):
+    """Блок «выбранные элементы» в окнах выбора: у каждого элемента категория, тип и сечение его коннектора; если
+    размеры одинаковые — ещё и размер будущего гибкого воздуховода. Возвращает (заголовок, текст)."""
+    lines = []
+    for i, (el, size) in enumerate(((e0, s0), (e1, s1)), 1):
+        lines.append(u'{0}. {1} · «{2}» · {3}'.format(i, category_name(el), type_label(el), size_text(size)))
+    if hvac_sizes.same_size(s0, s1):
+        lines.append(u'Размер гибкого воздуховода: {0}'.format(size_text(s0)))
+    return u'Выбранные элементы', u'\n'.join(lines)
+
+
 # ---------- типи, система, рівень ----------
 
 def flex_types():
@@ -368,30 +385,23 @@ def save_last(key, value):
         pass
 
 
-PICK_XAML = u"""
-<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Width="340" SizeToContent="Height" WindowStartupLocation="CenterScreen"
-        ResizeMode="NoResize" ShowInTaskbar="False" Topmost="True">
-  <StackPanel Margin="12">
-    <ComboBox x:Name="choices" Margin="0,0,0,10"/>
-    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-      <Button x:Name="ok_btn" Content="OK" Width="80" Margin="0,0,8,0" IsDefault="True"/>
-      <Button x:Name="cancel_btn" Content="Отмена" Width="80" IsCancel="True"/>
-    </StackPanel>
-  </StackPanel>
-</Window>
-"""
+def pick_xaml(with_info):
+    """XAML компактного окна выбора: один выпадающий список; сверху — блок «выбранные элементы», если он нужен."""
+    body = (hvac_ui.info_block() + u'\n' if with_info else u'') + \
+        u'      <ComboBox x:Name="choices" Margin="0,0,0,12"/>\n' + hvac_ui.buttons(u'ok_btn', u'OK')
+    return hvac_ui.window_xaml(u'QuickFlexConnect', 380, body)
 
 
-def pick_in_small_window(names, last, title):
+def pick_in_small_window(names, last, title, info=None):
     """Компактне вікно: один випадаючий список, остання вибрана позиція вже підставлена; Enter — OK, Esc — скасувати.
     Повертає вибране ім'я або None."""
 
     class PickWindow(forms.WPFWindow):
         def __init__(self):
-            forms.WPFWindow.__init__(self, PICK_XAML, literal_string=True)
-            self.Title = title
+            forms.WPFWindow.__init__(self, pick_xaml(info is not None), literal_string=True)
+            hvac_ui.set_title(self, title)
+            if info is not None:
+                hvac_ui.fill_info(self, info[0], info[1])
             self.result = None
             combo = self.FindName('choices')
             for n in names:
@@ -409,7 +419,7 @@ def pick_in_small_window(names, last, title):
     return win.result
 
 
-def choose_from(items, names, title, last_key):
+def choose_from(items, names, title, last_key, info=None):
     """Вибір зі списку з пам'яттю останнього (він підставляється одразу, Enter — підтвердити). Один елемент — без запиту.
     Не вдалося створити своє вікно — стандартний список pyRevit."""
     if len(items) == 1:
@@ -417,7 +427,7 @@ def choose_from(items, names, title, last_key):
     last = load_last(last_key)
     ordered = sorted(names)
     try:
-        picked = pick_in_small_window(ordered, last, title)
+        picked = pick_in_small_window(ordered, last, title, info)
     except Exception:
         hvac_log.log_exception(TOOL, u'компактне вікно вибору не вдалося, беру стандартний список')
         order = sorted(range(len(items)), key=lambda i: (names[i] != last, names[i]))
@@ -681,35 +691,24 @@ def apply_config_param(flex, state):
         state['warnings'].append(u'Не удалось записать параметр «{0}»: {1}'.format(name, ex))
 
 
-BUILD_XAML = u"""
-<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Размеры элементов разные" Width="400" SizeToContent="Height" WindowStartupLocation="CenterScreen"
-        ResizeMode="NoResize" ShowInTaskbar="False" Topmost="True">
-  <StackPanel Margin="12">
-    <TextBlock Text="Размер гибкого воздуховода:" Margin="0,0,0,6"/>
-    <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
-      <ToggleButton x:Name="chip0" MinWidth="120" Padding="12,5" Margin="0,0,8,0"/>
-      <ToggleButton x:Name="chip1" MinWidth="120" Padding="12,5"/>
-    </StackPanel>
+BUILD_BODY = (u'''<!--INFO-->
+''' + hvac_ui.label(u'Размер гибкого воздуховода:') + u'''
+      <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+        <ToggleButton x:Name="chip0" MinWidth="120" Style="{StaticResource ChipToggle}" Margin="0,0,8,0"/>
+        <ToggleButton x:Name="chip1" MinWidth="120" Style="{StaticResource ChipToggle}"/>
+      </StackPanel>
 <!--CUSTOM_ROW-->
 <!--BOX_ROW-->
-    <TextBlock Text="Тип гибкого воздуховода:" Margin="0,0,0,4"/>
-    <ComboBox x:Name="types" Margin="0,0,0,12"/>
-    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-      <Button x:Name="ok_btn" Content="OK" Width="80" Margin="0,0,8,0" IsDefault="True"/>
-      <Button x:Name="cancel_btn" Content="Отмена" Width="80" IsCancel="True"/>
-    </StackPanel>
-  </StackPanel>
-</Window>
-"""
+''' + hvac_ui.label(u'Тип гибкого воздуховода:') + u'''
+      <ComboBox x:Name="types" Margin="0,0,0,14"/>
+''' + hvac_ui.buttons(u'ok_btn', u'OK'))
 
-CUSTOM_ROW_XAML = u'''    <ComboBox x:Name="custom_size" Margin="0,0,0,6"/>'''
+CUSTOM_ROW_XAML = u'''      <ComboBox x:Name="custom_size" Margin="0,0,0,8"/>'''
 
-BOX_ROW_XAML = u'''    <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
-      <ComboBox x:Name="custom_w" Width="184" Margin="0,0,8,0" IsEnabled="False"/>
-      <ComboBox x:Name="custom_h" Width="184" IsEnabled="False"/>
-    </StackPanel>'''
+BOX_ROW_XAML = u'''      <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+        <ComboBox x:Name="custom_w" Width="188" Margin="0,0,8,0" IsEnabled="False"/>
+        <ComboBox x:Name="custom_h" Width="188" IsEnabled="False"/>
+      </StackPanel>'''
 
 CUSTOM_PLACEHOLDER = u'Другой размер…'
 CUSTOM_WIDTH = u'Ширина…'
@@ -717,14 +716,17 @@ CUSTOM_HEIGHT = u'Высота…'
 NO_CUSTOM_SIZES = u'(других стандартных размеров нет)'
 
 
-def build_xaml(with_box, with_custom=True):
+def build_xaml(with_box, with_custom=True, with_info=False):
     """XAML окна размера и типа. Строка «ширина / высота» (прямоугольные и овальные) — только если для них нашлись
-    стандартные размеры проекта; список «Другой размер…» (диаметры) — если есть диаметры или нет строки ширина/высота."""
-    xaml = BUILD_XAML.replace(u'<!--CUSTOM_ROW-->', CUSTOM_ROW_XAML if with_custom else u'')
-    return xaml.replace(u'<!--BOX_ROW-->', BOX_ROW_XAML if with_box else u'')
+    стандартные размеры проекта; список «Другой размер…» (диаметры) — если есть диаметры или нет строки ширина/высота;
+    блок «выбранные элементы» — если есть что показать."""
+    body = BUILD_BODY.replace(u'<!--INFO-->', hvac_ui.info_block() if with_info else u'')
+    body = body.replace(u'<!--CUSTOM_ROW-->', CUSTOM_ROW_XAML if with_custom else u'')
+    body = body.replace(u'<!--BOX_ROW-->', BOX_ROW_XAML if with_box else u'')
+    return hvac_ui.window_xaml(u'Размеры элементов разные', 420, body)
 
 
-def ask_size_and_type_window(sizes, custom_sizes, entries, last, box_dims=None):
+def ask_size_and_type_window(sizes, custom_sizes, entries, last, box_dims=None, info=None):
     """Одно окно, когда размеры элементов разные: две плашки с размерами обоих коннекторов (по умолчанию выбрана
     первая), ниже список «Другой размер…» (стандартные диаметры), для прямоугольных и овальных — два списка
     «Ширина…» и «Высота…» (стандартные размеры проекта), ещё ниже тип. Список типов подстраивается под форму
@@ -735,7 +737,9 @@ def ask_size_and_type_window(sizes, custom_sizes, entries, last, box_dims=None):
     class BuildWindow(forms.WPFWindow):
         def __init__(self):
             has_custom = bool(custom_sizes) or not box_dims
-            forms.WPFWindow.__init__(self, build_xaml(bool(box_dims), has_custom), literal_string=True)
+            forms.WPFWindow.__init__(self, build_xaml(bool(box_dims), has_custom, info is not None), literal_string=True)
+            if info is not None:
+                hvac_ui.fill_info(self, info[0], info[1])
             self.result = None
             self.size = sizes[0]
             self.base = sizes[0]                 # размер выбранной плашки: от него считаются ширина и высота
@@ -907,7 +911,8 @@ def choose_options(s0, s1, entries, state):
                 return sample, size
             forms.alert(u'Тип «{0}» не подходит по форме («{1}»). Выберите другой из списка.'.format(
                 type_name(sample), hvac_sizes.SHAPE_NAMES.get(size.get('shape'), u'?')), title=u'QuickFlexConnect')
-        chosen = choose_from([by_name[n] for n in names], names, u'Тип гибкого воздуховода', 'flex_type')
+        chosen = choose_from([by_name[n] for n in names], names, u'Тип гибкого воздуховода', 'flex_type',
+                             info=state.get('info'))
         state['type'] = chosen
         return chosen, size
     sizes = [s0, s1]
@@ -923,7 +928,7 @@ def choose_options(s0, s1, entries, state):
         hvac_sizes.label(s0), hvac_sizes.label(s1), len(custom),
         u', '.join(u'{0}={1}'.format(k, len(v)) for k, v in sorted(box_dims.items())) or u'нет'))
     try:
-        result = ask_size_and_type_window(sizes, custom, entry_pairs, last, box_dims)
+        result = ask_size_and_type_window(sizes, custom, entry_pairs, last, box_dims, state.get('info'))
     except Exception:
         hvac_log.log_exception(TOOL, u'вікно розміру й типу не вдалося, беру стандартні списки')
         result = ask_size_and_type_dialogs(sizes, custom, entry_pairs, last)
@@ -1047,6 +1052,7 @@ def main():
             pair[0].Origin.X, pair[0].Origin.Y, pair[0].Origin.Z,
             pair[1].Origin.X, pair[1].Origin.Y, pair[1].Origin.Z))
         s0, s1 = connector_size(pair[0]), connector_size(pair[1])
+        system_state['info'] = pair_info(e0, e1, s0, s1)
         hvac_log.log(TOOL, u'розміри конекторів: {0} / {1}'.format(hvac_sizes.label(s0), hvac_sizes.label(s1)))
         try:
             flex_type, size = choose_options(s0, s1, entries, system_state)

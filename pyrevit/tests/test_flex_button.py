@@ -101,7 +101,7 @@ CATS = {'OST_DuctCurves': -2008000, 'OST_DuctAccessory': -2008016, 'OST_DuctFitt
 
 
 def category(name):
-    return types.SimpleNamespace(Id=EId(CATS[name]))
+    return types.SimpleNamespace(Id=EId(CATS[name]), Name=name)
 
 
 class FakeDuct(object):          # має ConnectorManager (як Duct/FlexDuct)
@@ -113,6 +113,9 @@ class FakeDuct(object):          # має ConnectorManager (як Duct/FlexDuct)
         for c in conns:
             c.Owner = self
             self.ConnectorManager.Connectors.append(c)
+
+    def GetTypeId(self):
+        return TypeRef(types.SimpleNamespace(Name=u'Тип-%d' % self.Id.Value, Id=EId(7000 + self.Id.Value)))
 
 
 class FakeInstance(object):      # сімейство: конектори через MEPModel
@@ -132,6 +135,9 @@ class FakeInstance(object):      # сімейство: конектори чер
     def MEPModel(self):
         self.mep_reads += 1
         return self._mep
+
+    def GetTypeId(self):
+        return TypeRef(types.SimpleNamespace(Name=u'Тип-%d' % self.Id.Value, Id=EId(7000 + self.Id.Value)))
 
     def __getattr__(self, name):
         if name == 'ConnectorManager':
@@ -514,6 +520,8 @@ def run_button(world, answers=None, loop=False, path=None):
 
         def ShowDialog(self):
             c = self.ctl
+            if 'info' in c:                                   # блок «выбранные элементы» (если он есть в окне)
+                world.log.append(('info', getattr(c['info_title'], 'Text', None), getattr(c['info'], 'Text', None)))
             if 'chip0' in c:                                  # вікно розміру й типу (розміри різні)
                 has_custom = 'custom_size' in c            # без диаметров и с рядом ширина/высота списка «Другой размер…» нет
                 world.log.append(('buildwin', [c['chip0'].Content, c['chip1'].Content],
@@ -626,7 +634,7 @@ def run_button(world, answers=None, loop=False, path=None):
                         'Autodesk': types.ModuleType('Autodesk'), 'Autodesk.Revit': types.ModuleType('Autodesk.Revit'),
                         'Autodesk.Revit.Exceptions': exc})
     try:
-        runpy.run_path(path or SCRIPT, run_name='__main__')
+        world.ns = runpy.run_path(path or SCRIPT, run_name='__main__')
     finally:
         for k, v in saved.items():
             if v is None:
@@ -949,6 +957,74 @@ class FlexButtonTests(unittest.TestCase):
         f = self._go(w, {'_sizes_crash': True})
         self.assertIsNotNone(f)
         self.assertIn(u'налаштування розмірів недоступні', self._log_text())
+
+    # ---------- блок «выбранные элементы» в окнах выбора ----------
+
+    @staticmethod
+    def _infos(w):
+        return [l for l in w.log if l[0] == 'info']
+
+    def test_size_window_shows_selected_elements_with_category_type_and_size(self):
+        w = scenario()
+        self._dia(w, 'a', 200)
+        self._dia(w, 'b', 160)
+        self._go(w)
+        info = self._infos(w)[0]
+        self.assertEqual(info[1], u'Выбранные элементы')
+        lines = info[2].split(u'\n')
+        self.assertEqual(len(lines), 2)                                       # размеры разные — строки про гибкий нет
+        self.assertTrue(lines[0].startswith(u'1. OST_DuctAccessory · «Тип-1» · Ø200 мм'), lines[0])
+        self.assertTrue(lines[1].startswith(u'2. OST_DuctCurves · «Тип-2» · Ø160 мм'), lines[1])
+
+    def test_type_window_for_equal_sizes_also_shows_elements_and_flex_size(self):
+        w = scenario()
+        self._go(w, {u'Тип гибкого': 'Flex Alu'})
+        info = self._infos(w)[0]
+        lines = info[2].split(u'\n')
+        self.assertEqual(len(lines), 3)
+        self.assertIn(u'Ø', lines[0])
+        self.assertTrue(lines[2].startswith(u'Размер гибкого воздуховода: Ø'), lines[2])
+        self.assertTrue(lines[2].endswith(u' мм'))
+
+    def test_rect_sizes_in_info_have_units(self):
+        w = scenario()
+        self._rect(w, 'a', 400, 200)
+        self._rect(w, 'b', 400, 200)
+        self._go(w, {u'Тип гибкого': 'Flex Alu'})
+        self.assertIn(u'400×200 мм', self._infos(w)[0][2])
+
+    def test_unknown_section_has_no_units(self):
+        w = scenario()
+        self._rect(w, 'a', 1, 1, shape='weird')
+        self._rect(w, 'b', 1, 1, shape='weird')
+        self._go(w, {u'Тип гибкого': 'Flex Alu'})
+        self.assertNotIn(u'? мм', self._infos(w)[0][2])
+
+    def test_system_type_window_has_no_info_block(self):
+        w = scenario()
+        w.system_types = [types.SimpleNamespace(Name='Supply Air', Id=EId(10)),
+                          types.SimpleNamespace(Name='Return Air', Id=EId(11))]
+        for conn in list(w.a.MEPModel.ConnectorManager.Connectors) + list(w.b.ConnectorManager.Connectors):
+            conn.MEPSystem = None
+        self._go(w, {u'Тип гибкого': 'Flex Alu', u'Тип системы': 'Return Air'})
+        self.assertEqual(len(self._infos(w)), 1)                              # только окно типа гибкого
+
+    def test_all_window_xaml_variants_are_well_formed(self):
+        import xml.dom.minidom
+        w = scenario()
+        w.picks = [Cancelled]
+        run_button(w)
+        ns = w.ns
+        for with_info in (False, True):
+            xml.dom.minidom.parseString(ns['pick_xaml'](with_info).encode('utf-8'))
+            for with_box in (False, True):
+                for with_custom in (False, True):
+                    xaml = ns['build_xaml'](with_box, with_custom, with_info)
+                    xml.dom.minidom.parseString(xaml.encode('utf-8'))
+                    self.assertNotIn(u'<!--', xaml)                           # заготовки заменены
+                    self.assertEqual(u'x:Name="custom_size"' in xaml, with_custom)
+                    self.assertEqual(u'x:Name="custom_w"' in xaml, with_box)
+                    self.assertEqual(u'x:Name="info"' in xaml, with_info)
 
     # ---------- прямоугольные и овальные: стандартные размеры проекта (ширина и высота) ----------
 

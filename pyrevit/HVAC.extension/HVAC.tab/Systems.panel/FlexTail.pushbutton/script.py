@@ -238,14 +238,27 @@ def pick_element(prompt):
     return doc.GetElement(ref.ElementId), point
 
 
+def is_physical(c):
+    """Настоящее соединение (конец воздуховода / патрубок), а не логическая связь с системой: Connector.AllRefs
+    возвращает и логические коннекторы системы — они исчезают вместе с воздуховодом, и обращаться к ним нельзя."""
+    try:
+        return c.ConnectorType in (DB.ConnectorType.End, DB.ConnectorType.Physical)
+    except Exception:
+        return False
+
+
+def physical_refs(c):
+    """Коннекторы, физически подключённые к c."""
+    try:
+        return [r for r in list(c.AllRefs) if is_physical(r)]
+    except Exception:
+        return []
+
+
 def connected_ducts(c, owner_id):
     """Жёсткие воздуховоды, подключённые к коннектору c: [(воздуховод, его коннектор в этом соединении)]."""
     result = []
-    try:
-        refs = list(c.AllRefs)
-    except Exception:
-        return result
-    for r in refs:
+    for r in physical_refs(c):
         try:
             owner = r.Owner
             if owner is None or eid_int(owner.Id) == owner_id:
@@ -260,13 +273,13 @@ def connected_ducts(c, owner_id):
 def other_connected(c, owner_id):
     """Что подключено к коннектору c, кроме его владельца: [(элемент, коннектор)] (для сообщения об ошибке)."""
     result = []
-    try:
-        for r in list(c.AllRefs):
+    for r in physical_refs(c):
+        try:
             owner = r.Owner
             if owner is not None and eid_int(owner.Id) != owner_id:
                 result.append((owner, r))
-    except Exception:
-        pass
+        except Exception:
+            continue
     return result
 
 
@@ -574,7 +587,12 @@ def connect_ends(flex, targets):
     for target in targets:
         if target is None or not ends:
             continue
-        mine = min(ends, key=lambda e: e.Origin.DistanceTo(target.Origin))
+        try:
+            where = target.Origin
+        except Exception as ex:                       # коннектор исчез вместе с удалённым воздуховодом — не подключаем
+            hvac_log.log(TOOL, u'коннектор для подключения недействителен, пропущен: {0}'.format(ex))
+            continue
+        mine = min(ends, key=lambda e: e.Origin.DistanceTo(where))
         mine.ConnectTo(target)
         ends = [e for e in ends if e is not mine]
 
