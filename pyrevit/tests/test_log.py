@@ -148,9 +148,9 @@ class LogTests(unittest.TestCase):
                 sys.modules.pop('pyrevit', None)
             else:
                 sys.modules['pyrevit'] = saved
-        self.assertTrue(any('видно-у-вікні' in m for m in out))
-        self.assertTrue(any(hvac_log.log_path() in m for m in out))
-        self.assertEqual(len(alerts), 1)
+        self.assertEqual(out, [])                                      # окно вывода pyRevit не используется
+        self.assertEqual(len(alerts), 1)                               # в тесте нет WPF — показан запасной диалог
+        self.assertIn('видно-у-вікні', alerts[0])
         self.assertIn(hvac_log.log_path(), alerts[0])
 
     def test_log_start_reads_revit_version_if_available(self):

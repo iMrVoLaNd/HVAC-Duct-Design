@@ -29,6 +29,7 @@ hvac_log.configure(os.path.dirname(os.path.abspath(__file__)), 'FlexTail')      
 try:
     from pyrevit import revit, DB, script
 
+    import hvac_dialog
     import hvac_flex_settings
     import hvac_revit
     import hvac_settings
@@ -50,6 +51,7 @@ class _LazyForms(object):
 
 
 forms = _LazyForms()
+hvac_dialog.configure(forms=forms, log_path=hvac_log.log_path, strings=hvac_dialog.RU)       # окна сообщений — в общем стиле
 CONFIG_SECTION = hvac_tail.SECTION      # старая секция pyRevit: из неё один раз переносим настройки в settings.ini
 PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
 LEGACY_KEYS = ('config_value', 'config_value_num', 'config_value_ctx', 'length_mm', 'default_length_mm',
@@ -139,7 +141,7 @@ def ask_with_window(value, default_length, remember, options):
         def on_save(self, sender, args):
             mm = hvac_tail.parse_length_mm(self.FindName('default_length').Text)
             if mm is None:
-                forms.alert(BAD_LENGTH, title=TITLE)
+                hvac_dialog.warn(BAD_LENGTH, title=TITLE)
                 return                                     # окно остаётся открытым
             chosen = self.FindName('param_value').SelectedItem
             self.result = (u'' if chosen in (None, NO_CHANGE) else chosen, mm,
@@ -168,7 +170,7 @@ def ask_with_dialogs(value, default_length, remember, options):
             return None
         mm = hvac_tail.parse_length_mm(text)
         if mm is None:
-            forms.alert(BAD_LENGTH, title=TITLE)
+            hvac_dialog.warn(BAD_LENGTH, title=TITLE)
     keep = forms.alert(u'Запоминать последнюю введённую длину?\nСейчас: {0}.'.format(u'да' if remember else u'нет'),
                        title=TITLE, yes=True, no=True)
     return (u'' if picked == NO_CHANGE else picked), mm, bool(keep)
@@ -195,7 +197,7 @@ def main():
     hvac_tail.set_default_length(cfg, result[1])
     hvac_tail.set_remember(cfg, result[2])
     if not cfg.save():
-        forms.alert(u'Не удалось записать файл настроек:\n{0}'.format(cfg.path), title=TITLE)
+        hvac_dialog.error(heading=u'Не удалось записать файл настроек', body=cfg.path, log=True, title=TITLE)
     hvac_log.log(TOOL, u'сохранено: «Гибкая конфигурация» = «{0}» (число {1}), длина по умолчанию {2} мм, запоминать {3}'.format(
         result[0], number, hvac_tail.format_mm(result[1]), result[2]))
 

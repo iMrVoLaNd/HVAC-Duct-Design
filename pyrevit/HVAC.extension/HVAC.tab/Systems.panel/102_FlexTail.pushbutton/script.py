@@ -35,6 +35,7 @@ try:
     from System.Collections.Generic import List
     from Autodesk.Revit.Exceptions import OperationCanceledException
 
+    import hvac_dialog
     import hvac_flex_settings
     import hvac_revit
     import hvac_settings
@@ -73,6 +74,8 @@ class _LazyForms(object):
 
 
 forms = _LazyForms()
+hvac_dialog.configure(forms=forms, select=lambda i: hvac_revit.select_and_show(uidoc, DB, List, i),
+                      log_path=hvac_log.log_path, strings=hvac_dialog.RU)       # окна сообщений — в общем стиле, ссылки на элементы и журнал
 
 
 def _unique_namespace(prefix):
@@ -296,6 +299,11 @@ def other_connected(c, owner_id):
     return result
 
 
+def element_item(el):
+    """Элемент для ссылки в окне сообщения: (подпись с id, числовой id) — клик по ней выделяет элемент в модели."""
+    return hvac_dialog.element_label(category_name(el), type_label(el), eid_int(el.Id)), eid_int(el.Id)
+
+
 def resolve_start(el, point):
     """По элементу и точке клика: (коннектор элемента, жёсткий воздуховод, коннектор воздуховода у элемента, None)
     либо (None, None, None, причина-текст). Берётся коннектор, ближайший к клику, и именно к нему должен быть
@@ -484,14 +492,14 @@ def ask_length_and_type_window(names, last_type, last_length, info, max_mm=None,
         def on_ok(self, sender, args):
             mm = hvac_tail.parse_length_mm(self.length.Text)
             if mm is None:
-                forms.alert(BAD_LENGTH, title=u'FlexTail')
+                hvac_dialog.warn(BAD_LENGTH, title=u'FlexTail')
                 return                                     # окно остаётся открытым
             mm, too_long = hvac_tail.fit_length(mm, max_mm)
             if too_long:
                 self.auto_text = hvac_tail.format_mm(mm)
                 self.length.Text = self.auto_text
                 self.auto = True
-                forms.alert(hvac_tail.too_long_text(mm), title=u'FlexTail')
+                hvac_dialog.warn(hvac_tail.too_long_text(mm), title=u'FlexTail')
                 return                                     # окно остаётся открытым: пользователь видит подставленное
             chosen = self.types.SelectedItem
             if chosen is not None:
@@ -517,11 +525,11 @@ def ask_length_and_type_dialogs(names, last_type, last_length, info, max_mm=None
             auto = False
         mm = hvac_tail.parse_length_mm(text)
         if mm is None:
-            forms.alert(BAD_LENGTH, title=u'FlexTail')
+            hvac_dialog.warn(BAD_LENGTH, title=u'FlexTail')
             continue
         mm, too_long = hvac_tail.fit_length(mm, max_mm)
         if too_long:
-            forms.alert(hvac_tail.too_long_text(mm), title=u'FlexTail')
+            hvac_dialog.warn(hvac_tail.too_long_text(mm), title=u'FlexTail')
             default, auto = mm, True
             auto_text = hvac_tail.format_mm(mm)
             continue
@@ -708,7 +716,8 @@ def convert_to_flex(c_elem, duct, near_end, far_end, plan, flex_type, size, stat
 def main():
     types = flex_types()
     if not types:
-        forms.alert(u'В проекте нет типов гибких воздуховодов.', title=u'FlexTail', exitscript=True)
+        hvac_dialog.warn(u'В проекте нет типов гибких воздуховодов.', title=u'FlexTail')
+        script.exit()
     entries = [(type_name(t), type_shape(t), t) for t in types]
     by_name = dict((n, t) for n, _s, t in entries)
     entry_pairs = [(n, s) for n, s, _t in entries]
@@ -734,7 +743,7 @@ def main():
         if reason is not None:
             hvac_log.log(TOOL, u'элемент не подошёл: {0} id {1}: {2}'.format(
                 category_name(el), eid_int(el.Id), reason.replace(u'\n', u' ')))
-            forms.alert(reason, title=u'FlexTail')
+            hvac_dialog.warn(reason, title=u'FlexTail', elements=[element_item(el)])       # элемент можно выделить из окна
             continue                                            # снова просим кликнуть; Esc — выход
         break
 
@@ -747,8 +756,8 @@ def main():
 
     names = hvac_sizes.types_for_shape(entry_pairs, size.get('shape'))
     if not names:
-        forms.alert(u'Нет типов гибкого воздуховода для формы «{0}».'.format(
-            hvac_sizes.SHAPE_NAMES.get(size.get('shape'), u'?')), title=u'FlexTail')
+        hvac_dialog.warn(u'Нет типов гибкого воздуховода для формы «{0}».'.format(
+            hvac_sizes.SHAPE_NAMES.get(size.get('shape'), u'?')), title=u'FlexTail', elements=[element_item(duct)])
         return
     size_text = hvac_ui.size_text(hvac_sizes.label(size), size.get('shape') is not None)
     info = (u'Найден элемент категории «{0}»'.format(category_name(duct)),
@@ -769,20 +778,25 @@ def main():
 
     plan = hvac_tail.plan_tail(hvac_tail.mm_to_ft(length_mm), duct_ft)
     try:
-        convert_to_flex(c_elem, duct, near_end, far_end, plan, by_name[chosen], size, state)
+        flex = convert_to_flex(c_elem, duct, near_end, far_end, plan, by_name[chosen], size, state)
     except Exception as ex:
         if hvac_log.is_not_error(ex):
             raise
         hvac_log.log(TOOL, u'преобразование не удалось: {0}'.format(ex))
-        forms.alert(u'Не удалось преобразовать воздуховод:\n{0}\n\nЖурнал: {1}'.format(ex, hvac_log.log_path()),
-                    title=u'FlexTail')
+        import traceback
+        hvac_dialog.error(heading=u'Не удалось преобразовать воздуховод', body=u'{0}'.format(ex),
+                          details=traceback.format_exc(), elements=[element_item(el), element_item(duct)],
+                          title=u'FlexTail')
         return
     note = hvac_tail.note_text(plan['note'], length_mm, duct_mm)
     if note:
         hvac_log.log(TOOL, u'сообщение пользователю: {0}'.format(note.replace(u'\n', u' ')))
-        forms.alert(note, title=u'FlexTail')
-    for w in sorted(set(state['warnings'])):
-        script.get_output().print_md(u'* **Внимание:** {0}'.format(w))       # окно вывода — только когда есть что показать
+        hvac_dialog.info(note, title=u'FlexTail', elements=[(hvac_dialog.element_label(u'Гибкий воздуховод', u'', eid_int(flex.Id)),
+                                                              eid_int(flex.Id))])
+    warnings = sorted(set(state['warnings']))
+    if warnings:                                                    # окно — только когда есть что показать
+        hvac_dialog.warn(heading=u'Преобразовано, но есть замечания', body=u'\n'.join(u'• ' + w for w in warnings),
+                         log=True, tag=u'warnings', title=u'FlexTail')
     if state['learned'] is not None and state['learned'] != hvac_flex_settings.get_config_number(cfg, ctx):
         hvac_flex_settings.set_config_number(cfg, state['learned'], ctx)       # в следующий раз — без перебора
         cfg.save()

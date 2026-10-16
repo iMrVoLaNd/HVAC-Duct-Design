@@ -26,6 +26,7 @@ hvac_log.configure(os.path.dirname(os.path.abspath(__file__)), 'QuickFlexConnect
 try:
     from pyrevit import revit, DB, script
 
+    import hvac_dialog
     import hvac_flex_settings
     import hvac_revit
     import hvac_settings
@@ -46,6 +47,7 @@ class _LazyForms(object):
 
 
 forms = _LazyForms()
+hvac_dialog.configure(forms=forms, log_path=hvac_log.log_path, strings=hvac_dialog.RU)       # окна сообщений — в общем стиле
 CONFIG_SECTION = hvac_flex_settings.SECTION      # старая секция pyRevit: из неё один раз переносим настройки в settings.ini
 PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
 LEGACY_KEYS = ('config_value', 'config_value_num', 'config_value_ctx', 'loop', 'type_from_model', 'flex_type', 'system_type')
@@ -177,7 +179,7 @@ def main():
     hvac_flex_settings.set_loop(cfg, result[1])
     hvac_flex_settings.set_type_from_model(cfg, result[2])
     if not cfg.save():
-        forms.alert(u'Не удалось записать файл настроек:\n{0}'.format(cfg.path), title=TITLE)
+        hvac_dialog.error(heading=u'Не удалось записать файл настроек', body=cfg.path, log=True, title=TITLE)
     hvac_log.log(TOOL, u'збережено: «Гибкая конфигурация» = «{0}» (число {1}), цикл {2}, тип з моделі {3}'.format(
         result[0], number, result[1], result[2]))
 

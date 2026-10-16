@@ -27,6 +27,7 @@ if LIB not in sys.path:
     sys.path.insert(0, LIB)
 import hvac_flex_settings
 import hvac_log
+import hvac_dialog
 import hvac_settings
 import hvac_ui
 
@@ -620,6 +621,20 @@ def run_button(world, answers=None, loop=False, path=None):
 
 
     real_load = hvac_settings.load
+    real_show = hvac_dialog.show
+
+    def fake_show(msg):
+        """Окна сообщений вместо WPF: текст записывается так же, как раньше писали в forms.alert."""
+        world.dialogs = getattr(world, 'dialogs', []) + [msg]
+        if msg.tag == u'warnings':                       # окно замечаний — прежнее «окно вывода»
+            world.output_calls = getattr(world, 'output_calls', 0) + 1
+            for line in msg.body.split(u'\n'):
+                world.log.append(('md', u'* **Внимание:** {0}'.format(line.lstrip(u'• '))))
+            return True
+        world.alerts.append(hvac_dialog.plain_text(msg))
+        return answers.get('_alert_result', True) if msg.confirm else True
+
+    hvac_dialog.show = fake_show
 
     class FileCfg(object):
         """Подмена settings.ini: тот же словарь, что и у старой секции pyRevit (тесты задают и читают его так же)."""
@@ -672,6 +687,7 @@ def run_button(world, answers=None, loop=False, path=None):
         world.ns = runpy.run_path(path or SCRIPT, run_name='__main__')
     finally:
         hvac_settings.load = real_load
+        hvac_dialog.show = real_show
         for k, v in saved.items():
             if v is None:
                 sys.modules.pop(k, None)
@@ -1910,7 +1926,10 @@ class FlexButtonTests(unittest.TestCase):
         run_button(w)                                        # не кидає: помилку обробив журнал
         self.assertIn(u'RuntimeError: несподіванка-9001', self._log_text())
         self.assertTrue(any(hvac_log.log_path() in a for a in w.alerts))
-        self.assertTrue(any(l[0] == 'md' and 'несподіванка-9001' in l[1] for l in w.log))
+        error = [m for m in w.dialogs if m.kind == 'error'][-1]                  # окно ошибки в общем стиле
+        self.assertIn(u'несподіванка-9001', error.body)
+        self.assertIn(u'RuntimeError: несподіванка-9001', error.details)         # traceback — в подробностях
+        self.assertEqual(error.log, hvac_log.log_path())                        # есть что открыть кнопкой журнала
 
     def test_cancel_by_esc_is_logged_without_error(self):
         w = scenario()
@@ -2129,6 +2148,37 @@ class FlexButtonTests(unittest.TestCase):
         self.assertEqual(w.created, [])
         self.assertTrue(any(u'слишком близко' in a for a in w.alerts))
         self.assertEqual(w.tx, ['start', 'rollback'])
+
+    def test_build_failure_dialog_has_traceback_log_and_links_to_both_elements(self):
+        w = scenario()
+        w.b.ConnectorManager.Connectors[0].Origin = XYZ(0, 0, 0.001)
+        w.picks = [w.a, w.b, Cancelled]
+        run_button(w)
+        err = [m for m in w.dialogs if m.kind == 'error'][0]
+        self.assertEqual(err.heading, u'Не удалось построить гибкий воздуховод')
+        self.assertIn(u'слишком близко', err.body)
+        self.assertIn(u'Traceback', err.details)                                 # можно скопировать целиком
+        self.assertEqual(err.log, hvac_log.log_path())
+        self.assertEqual([i for _label, i in err.elements], [1, 2])           # ссылки на оба элемента — по id
+        self.assertTrue(all(u'id ' in label for label, _i in err.elements))
+
+    def test_busy_first_element_dialog_links_to_that_element(self):
+        w = scenario()
+        busy = FakeDuct(60, [Connector(None, XYZ(1, 1, 1), XYZ(1, 0, 0), connected=True)])
+        w.elements[60] = busy
+        w.picks = [busy, w.b]
+        run_button(w)
+        msg = w.dialogs[0]
+        self.assertEqual((msg.kind, msg.log), ('warning', hvac_log.log_path()))
+        self.assertEqual(msg.elements[0][1], 60)
+        self.assertIn(u'id 60', msg.elements[0][0])
+
+    def test_same_element_dialog_links_to_it(self):
+        w = scenario()
+        w.picks = [w.a, w.a, Cancelled]
+        run_button(w)
+        msg = [m for m in w.dialogs if u'один и тот же' in m.heading][0]
+        self.assertEqual([i for _l, i in msg.elements], [1])
 
     def test_same_connector_twice_is_rejected(self):
         w = scenario()

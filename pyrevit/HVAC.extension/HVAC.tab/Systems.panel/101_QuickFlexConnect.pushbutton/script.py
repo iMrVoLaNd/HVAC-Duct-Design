@@ -36,6 +36,7 @@ try:
     from System.Collections.Generic import List
     from Autodesk.Revit.Exceptions import OperationCanceledException
 
+    import hvac_dialog
     import hvac_flex_settings
     import hvac_revit
     import hvac_settings
@@ -61,6 +62,8 @@ class _LazyForms(object):
 
 
 forms = _LazyForms()
+hvac_dialog.configure(forms=forms, select=lambda i: hvac_revit.select_and_show(uidoc, DB, List, i),
+                      log_path=hvac_log.log_path, strings=hvac_dialog.RU)       # окна сообщений — в общем стиле, ссылки на элементы и журнал
 
 
 def _unique_namespace(prefix):
@@ -270,8 +273,8 @@ def pick_sample_type(by_name):
     name = type_name(doc.GetElement(flex.GetTypeId()))
     hvac_log.log(TOOL, u'тип зі зразка в моделі: «{0}»'.format(name))
     if name not in by_name:
-        forms.alert(u'Тип «{0}» не найден среди типов гибких воздуховодов. Выберите из списка.'.format(name),
-                    title=u'QuickFlexConnect')
+        hvac_dialog.warn(u'Тип «{0}» не найден среди типов гибких воздуховодов.\nВыберите из списка.'.format(name),
+                         title=u'QuickFlexConnect')
         return None
     return by_name[name]
 
@@ -329,17 +332,23 @@ def describe_pick(el, point):
         return category_name(el)
 
 
+def element_item(el):
+    """Элемент для ссылки в окне сообщения: (подпись с id, числовой id) — клик по ней выделяет элемент в модели."""
+    return hvac_dialog.element_label(category_name(el), type_label(el), eid_int(el.Id)), eid_int(el.Id)
+
+
 def explain_no_free(*elements):
-    """Чому пару не знайдено: який елемент без вільних конекторів і що з його конекторами (у журнал і в діалог)."""
-    lines = []
+    """Чему мешает пара: у каких элементов нет свободных коннекторов. Возвращает (текст, ссылки на эти элементы);
+    подробности коннекторов пишутся в журнал."""
+    lines, items = [], []
     for e in elements:
         if not free_connectors(e):
             conns = element_connectors(e)
             hvac_log.log(TOOL, u'немає вільних конекторів: {0} id {1}; конектори: {2}'.format(
                 category_name(e), eid_int(e.Id), u'; '.join(connector_text(c) for c in conns) or u'нет'))
-            lines.append(u'«{0}» (id {1}): всего коннекторов {2}, свободных 0'.format(
-                category_name(e), eid_int(e.Id), len(conns)))
-    return u'\n'.join(lines)
+            lines.append(u'{0}: всего коннекторов {1}, свободных 0.'.format(category_name(e), len(conns)))
+            items.append(element_item(e))
+    return u'\n'.join(lines), items
 
 
 def size_text(size):
@@ -466,7 +475,8 @@ def system_type_id_from(connector):
 def pick_system_type_id():
     types = sorted(DB.FilteredElementCollector(doc).OfClass(DB.Mechanical.MechanicalSystemType), key=type_name)
     if not types:
-        forms.alert(u'В проекте нет типов механических систем.', title=u'QuickFlexConnect', exitscript=True)
+        hvac_dialog.warn(u'В проекте нет типов механических систем.', title=u'QuickFlexConnect')
+        script.exit()
     names = [type_name(t) for t in types]
     return choose_from(types, names, u'Тип системы для нового гибкого воздуховода', 'system_type').Id
 
@@ -920,7 +930,7 @@ def choose_options(s0, s1, entries, state):
                 state['type'] = sample
                 save_last('flex_type', type_name(sample))
                 return sample, size
-            forms.alert(u'Тип «{0}» не подходит по форме («{1}»). Выберите другой из списка.'.format(
+            hvac_dialog.warn(u'Тип «{0}» не подходит по форме («{1}»).\nВыберите другой из списка.'.format(
                 type_name(sample), hvac_sizes.SHAPE_NAMES.get(size.get('shape'), u'?')), title=u'QuickFlexConnect')
         chosen = choose_from([by_name[n] for n in names], names, u'Тип гибкого воздуховода', 'flex_type',
                              info=state.get('info'))
@@ -1015,7 +1025,8 @@ def main():
     _T_MAIN = time.time()
     types = flex_types()
     if not types:
-        forms.alert(u'В проекте нет типов гибких воздуховодов.', title=u'QuickFlexConnect', exitscript=True)
+        hvac_dialog.warn(u'В проекте нет типов гибких воздуховодов.', title=u'QuickFlexConnect')
+        script.exit()
     entries = [(type_name(t), type_shape(t), t) for t in types]
     cfg = get_cfg()
     ctx = hvac_revit.app_context(doc)
@@ -1041,9 +1052,10 @@ def main():
                                   u'к клику коннектор ({1})'.format(pair_no, tail))
             if not free_connectors(e0):                  # у первого нет свободных коннекторов — второй клик не нужен
                 hvac_log.log(TOOL, u'у первого элемента нет свободных коннекторов, второй клик не запрашиваем')
-                forms.alert(u'У первого элемента нет свободных коннекторов:\n{0}\n\nВторой элемент выбирать не нужно '
-                            u'(выберите другой первый элемент).\n\nЖурнал: {1}'.format(
-                                explain_no_free(e0), hvac_log.log_path()), title=u'QuickFlexConnect')
+                why, items = explain_no_free(e0)
+                hvac_dialog.warn(heading=u'У первого элемента нет свободных коннекторов',
+                                 body=why + u'\n\nВторой элемент выбирать не нужно: выберите другой первый элемент.',
+                                 elements=items, log=True, title=u'QuickFlexConnect')
                 if loop:
                     continue
                 break
@@ -1056,14 +1068,16 @@ def main():
         hvac_log.log(TOOL, u'вибрано: {0} «{1}» id {2} і {3} «{4}» id {5}'.format(
             category_name(e0), type_label(e0), eid_int(e0.Id), category_name(e1), type_label(e1), eid_int(e1.Id)))
         if eid_int(e0.Id) == eid_int(e1.Id):
-            forms.alert(u'Это один и тот же элемент. Выберите два разных.', title=u'QuickFlexConnect')
+            hvac_dialog.warn(heading=u'Это один и тот же элемент', body=u'Выберите два разных элемента.',
+                             elements=[element_item(e0)], title=u'QuickFlexConnect')
             if loop:
                 continue
             break
         pair = choose_pair(e0, p0, e1, p1)
         if pair is None:
-            forms.alert(u'У одного из элементов нет свободных коннекторов:\n{0}\n\nЖурнал: {1}'.format(
-                explain_no_free(e0, e1), hvac_log.log_path()), title=u'QuickFlexConnect')
+            why, items = explain_no_free(e0, e1)
+            hvac_dialog.warn(heading=u'У одного из элементов нет свободных коннекторов', body=why, elements=items,
+                             log=True, title=u'QuickFlexConnect')
             if loop:
                 continue
             break
@@ -1082,12 +1096,16 @@ def main():
             if hvac_log.is_not_error(ex):
                 raise                                       # Esc / закрите вікно вибору
             hvac_log.log(TOOL, u'побудова не вдалася: {0}'.format(ex))
-            forms.alert(u'Не удалось построить гибкий воздуховод:\n{0}\n\nЖурнал: {1}'.format(ex, hvac_log.log_path()),
-                        title=u'QuickFlexConnect')
+            import traceback
+            hvac_dialog.error(heading=u'Не удалось построить гибкий воздуховод', body=u'{0}'.format(ex),
+                              details=traceback.format_exc(), elements=[element_item(e0), element_item(e1)],
+                              title=u'QuickFlexConnect')
         if not loop:
             break
-    for w in sorted(set(system_state['warnings'])):
-        script.get_output().print_md(u'* **Внимание:** {0}'.format(w))      # вікно виводу — лише коли є що показати
+    warnings = sorted(set(system_state['warnings']))
+    if warnings:                                                   # окно — только когда есть что показать
+        hvac_dialog.warn(heading=u'Построено, но есть замечания', body=u'\n'.join(u'• ' + w for w in warnings),
+                         log=True, tag=u'warnings', title=u'QuickFlexConnect')
     if system_state['learned'] is not None and system_state['learned'] != hvac_flex_settings.get_config_number(cfg, ctx):
         hvac_flex_settings.set_config_number(cfg, system_state['learned'], ctx)      # наступного разу — без перебору
         cfg.save()

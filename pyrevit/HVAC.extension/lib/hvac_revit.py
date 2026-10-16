@@ -105,3 +105,15 @@ def set_enum_by_text(p, text, refresh=None, hint=None, trust_hint=False):
         if label.lower() == wanted:
             return number if p.Set(number) else None
     return None
+
+
+def select_and_show(uidoc, DB, List, element_id):
+    """Выделить элемент в модели по числовому id и показать его на активном виде (приблизить)."""
+    eid = DB.ElementId(int(element_id))
+    ids = List[DB.ElementId]()
+    ids.Add(eid)
+    uidoc.Selection.SetElementIds(ids)
+    try:
+        uidoc.ShowElements(eid)
+    except Exception:
+        pass                                  # выделили — уже хорошо; показать не вышло (другой вид и т.п.)

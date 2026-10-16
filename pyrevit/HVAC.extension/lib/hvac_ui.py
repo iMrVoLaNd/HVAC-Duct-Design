@@ -106,6 +106,24 @@ _RESOURCES = u'''
         </Setter.Value>
       </Setter>
     </Style>
+    <Style x:Key="Link" TargetType="Button">
+      <Setter Property="Foreground" Value="@INK_SOFT@"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <TextBlock x:Name="tx" Text="{TemplateBinding Content}" TextDecorations="Underline" TextWrapping="Wrap"
+                       Foreground="{TemplateBinding Foreground}"/>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="tx" Property="Foreground" Value="@NAVY@"/>
+                <Setter TargetName="tx" Property="FontWeight" Value="SemiBold"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
     <Style x:Key="ChipToggle" TargetType="ToggleButton">
       <Setter Property="Foreground" Value="@NAVY@"/>
       <Setter Property="FontWeight" Value="SemiBold"/>

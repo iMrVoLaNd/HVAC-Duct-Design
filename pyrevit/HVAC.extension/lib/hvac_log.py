@@ -175,8 +175,24 @@ def elapsed_ms(started):
     return int((time.time() - started) * 1000)
 
 
+def _last_line(text):
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    return lines[-1] if lines else u''
+
+
 def _report(tool, text):
+    """Показать ошибку: окно в общем стиле (с подробностями, кнопками «Копировать» и «Открыть журнал»).
+    Не получилось — по-старому: окно вывода pyRevit и стандартный диалог."""
     path = log_path()
+    try:
+        from pyrevit import forms
+        import hvac_dialog
+        hvac_dialog.configure(forms=forms, log_path=log_path)
+        hvac_dialog.error(heading=u'Ошибка в кнопке «{0}»'.format(tool), body=_last_line(text), details=text,
+                          title=u'HVAC', log=path)
+        return
+    except Exception:
+        pass
     try:
         from pyrevit import script
         out = script.get_output()

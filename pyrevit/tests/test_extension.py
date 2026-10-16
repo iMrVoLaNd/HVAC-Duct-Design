@@ -25,6 +25,7 @@ SCRIPT = os.path.join(EXT, 'HVAC.tab', 'Systems.panel', '103_SystemsTemplate.pus
 os.environ['HVAC_LOG_DIR'] = tempfile.mkdtemp()      # журнал тестів — не в реальний %APPDATA%
 sys.path.insert(0, LIB)
 
+import hvac_dialog  # noqa: E402
 import hvac_palette  # noqa: E402
 
 
@@ -304,9 +305,22 @@ def run_button(doc, answers, view_type='FloorPlan', apply_template=True, existin
     saved = dict((k, sys.modules.get(k)) for k in ('pyrevit', 'System', 'System.Collections', 'System.Collections.Generic'))
     sys.modules.update({'pyrevit': pyrevit, 'System': sysmod, 'System.Collections': coll,
                         'System.Collections.Generic': gen})
+    real_show = hvac_dialog.show
+
+    def fake_show(msg):
+        """Окна сообщений вместо WPF: звіт (рядки тіла) — у lines, текст — у alerts, відповіді як раніше у forms.alert."""
+        text = hvac_dialog.plain_text(msg)
+        alerts.append(text)
+        if msg.confirm:
+            lines.extend(msg.body.split(u'\n'))
+            return existing_template_reuse if u'вже існує' in text else apply_template
+        return True
+
+    hvac_dialog.show = fake_show
     try:
         runpy.run_path(SCRIPT, run_name='__main__')
     finally:
+        hvac_dialog.show = real_show
         for k, v in saved.items():
             if v is None:
                 sys.modules.pop(k, None)

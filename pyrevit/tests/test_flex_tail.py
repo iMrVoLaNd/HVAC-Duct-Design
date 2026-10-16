@@ -23,6 +23,7 @@ os.environ.setdefault('HVAC_SETTINGS_DIR', tempfile.mkdtemp())      # файлы
 if LIB not in sys.path:
     sys.path.insert(0, LIB)
 import hvac_log
+import hvac_dialog
 import hvac_settings
 import hvac_ui
 
@@ -579,6 +580,20 @@ def run_button(world, answers=None, path=None):
 
 
     real_load = hvac_settings.load
+    real_show = hvac_dialog.show
+
+    def fake_show(msg):
+        """Окна сообщений вместо WPF: текст записывается так же, как раньше писали в forms.alert."""
+        world.dialogs = getattr(world, 'dialogs', []) + [msg]
+        if msg.tag == u'warnings':                       # окно замечаний — прежнее «окно вывода»
+            world.output_calls = getattr(world, 'output_calls', 0) + 1
+            for line in msg.body.split(u'\n'):
+                world.log.append(('md', u'* **Внимание:** {0}'.format(line.lstrip(u'• '))))
+            return True
+        world.alerts.append(hvac_dialog.plain_text(msg))
+        return answers.get('_alert_result', True) if msg.confirm else True
+
+    hvac_dialog.show = fake_show
 
     class FileCfg(object):
         """Подмена settings.ini: тот же словарь, что и у старой секции pyRevit (тесты задают и читают его так же)."""
@@ -630,6 +645,7 @@ def run_button(world, answers=None, path=None):
         world.ns = runpy.run_path(path or SCRIPT, run_name='__main__')
     finally:
         hvac_settings.load = real_load
+        hvac_dialog.show = real_show
         for k, v in saved.items():
             if v is None:
                 sys.modules.pop(k, None)
@@ -1195,6 +1211,17 @@ class FlexTailTests(unittest.TestCase):
         self.assertIn(u'не подключён воздуховод', w.alerts[0])
         self.assertEqual(len(w.created), 1)
 
+    def test_reason_dialog_links_to_the_clicked_element(self):
+        w = scene(2000)
+        lonely = Equip(60, level=EId(100))
+        lonely.add(Conn(None, XYZ(5, 0, 0), XYZ(1, 0, 0)))
+        w.elements[60] = lonely
+        w.picks = [(lonely, XYZ(5, 0, 0)), (w.eq, XYZ(0.05, 0, 0))]
+        self.go(w)
+        msg = w.dialogs[0]
+        self.assertEqual((msg.kind, msg.elements[0][1]), ('warning', 60))
+        self.assertIn(u'id 60', msg.elements[0][0])
+
     def test_flex_duct_connected_is_not_accepted(self):
         w = scene(2000)
         flex = FlexInst(70, [XYZ(0, 0, 0), XYZ(1, 0, 0)], w.flex_types[0])
@@ -1361,6 +1388,26 @@ class FlexTailTests(unittest.TestCase):
         self.assertEqual(w.created, [])
         self.assertTrue(any(u'Не удалось преобразовать' in a for a in w.alerts))
         self.assertIn(u'BreakCurve отказал', self.log_text())                 # полный traceback — в журнале
+
+    def test_failure_dialog_is_error_with_traceback_and_links(self):
+        w = scene(2000)
+        click(w)
+        self.go(w, {'_break_crash': True})
+        err = [m for m in w.dialogs if m.kind == 'error'][0]
+        self.assertEqual(err.heading, u'Не удалось преобразовать воздуховод')
+        self.assertIn(u'BreakCurve отказал', err.body)
+        self.assertIn(u'Traceback', err.details)
+        self.assertEqual(err.log, hvac_log.log_path())
+        self.assertEqual([i for _l, i in err.elements], [1, 2])                  # оборудование и воздуховод
+
+    def test_whole_conversion_note_links_to_created_flex(self):
+        w = scene(2000)
+        click(w)
+        self.go(w, {'_window': [{'length': '1998'}]})                            # остаток слишком мал — преобразуется целиком
+        msg = [m for m in w.dialogs if m.kind == 'info'][0]
+        self.assertEqual(len(msg.elements), 1)
+        self.assertIn(u'Гибкий воздуховод · id', msg.elements[0][0])
+        self.assertEqual(msg.elements[0][1], w.created[0].Id.Value)
 
     def test_normal_run_leaves_trail_in_log(self):
         w = scene(2000)
