@@ -24,6 +24,7 @@ except ImportError:
                 u'(усі файли) і перезавантажте pyRevit.\n\nШукав тут: {0}'.format(_LIB),
                 title=u'HVAC', exitscript=True)
 TOOL = 'systems_template'
+hvac_log.configure(os.path.dirname(os.path.abspath(__file__)), 'SystemsTemplate')       # журнал — в папке этой кнопки
 
 try:
     from pyrevit import revit, DB, forms, script

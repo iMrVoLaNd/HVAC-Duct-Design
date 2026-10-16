@@ -51,6 +51,39 @@ class XamlTests(unittest.TestCase):
                        u'x:Key="ChipToggle"', u'x:Key="Label"', u'x:Key="Muted"'):
             self.assertIn(target, text)
 
+    def test_header_is_named_for_dragging(self):
+        self.assertIn(u'x:Name="title_bar"', build(u''))
+
+    def test_enable_drag_moves_window_on_mouse_down(self):
+        class Event(object):
+            def __init__(self):
+                self.handlers = []
+
+            def __iadd__(self, h):
+                self.handlers.append(h)
+                return self
+
+        class Win(object):
+            def __init__(self, fail=False):
+                self.MouseLeftButtonDown = Event()
+                self.moved = 0
+                self.fail = fail
+
+            def DragMove(self):
+                self.moved += 1
+                if self.fail:
+                    raise RuntimeError('кнопку уже отпустили')
+
+        win = Win()
+        self.assertTrue(ui.enable_drag(win))
+        win.MouseLeftButtonDown.handlers[0](None, None)
+        self.assertEqual(win.moved, 1)
+        bad = Win(fail=True)
+        ui.enable_drag(bad)
+        bad.MouseLeftButtonDown.handlers[0](None, None)               # ошибка DragMove не должна вылетать наружу
+        self.assertEqual(bad.moved, 1)
+        self.assertFalse(ui.enable_drag(object()))                    # нет события — тихо False
+
     def test_default_button_is_primary(self):
         text = build(u'')
         self.assertIn(u'<Trigger Property="IsDefault" Value="True">', text)

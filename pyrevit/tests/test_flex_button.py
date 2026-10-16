@@ -22,10 +22,12 @@ SCRIPT = os.path.join(HERE, '..', 'HVAC.extension', 'HVAC.tab', 'Systems.panel',
 CONFIG = os.path.join(HERE, '..', 'HVAC.extension', 'HVAC.tab', 'Systems.panel', 'QuickFlexConnect.pushbutton', 'config.py')
 LIB = os.path.join(HERE, '..', 'HVAC.extension', 'lib')
 os.environ['HVAC_LOG_DIR'] = tempfile.mkdtemp()      # журнал тестів — не в реальний %APPDATA%
+os.environ.setdefault('HVAC_SETTINGS_DIR', tempfile.mkdtemp())      # файлы настроек тестов — не в папки кнопок
 if LIB not in sys.path:
     sys.path.insert(0, LIB)
 import hvac_flex_settings
 import hvac_log
+import hvac_settings
 
 
 class XYZ(object):
@@ -511,6 +513,11 @@ def run_button(world, answers=None, loop=False, path=None):
             if 'param_value' in self.ctl:
                 assert 'IsEditable="False"' in xaml            # лише вибір зі списку, вводити своє не можна
             self.closed = False
+            self.MouseLeftButtonDown = Event()
+            self.dragged = 0
+
+        def DragMove(self):
+            self.dragged += 1
 
         def FindName(self, name):
             return self.ctl[name]
@@ -520,6 +527,7 @@ def run_button(world, answers=None, loop=False, path=None):
 
         def ShowDialog(self):
             c = self.ctl
+            world.log.append(('drag', self))                  # вікно рухається: обробник натискання підключено
             if 'info' in c:                                   # блок «выбранные элементы» (если он есть в окне)
                 world.log.append(('info', getattr(c['info_title'], 'Text', None), getattr(c['info'], 'Text', None)))
             if 'chip0' in c:                                  # вікно розміру й типу (розміри різні)
@@ -609,6 +617,32 @@ def run_button(world, answers=None, loop=False, path=None):
         world.output_calls = getattr(world, 'output_calls', 0) + 1
         return Output()
 
+
+    real_load = hvac_settings.load
+
+    class FileCfg(object):
+        """Подмена settings.ini: тот же словарь, что и у старой секции pyRevit (тесты задают и читают его так же)."""
+        path = u'settings.ini'
+
+        def __init__(self, old):
+            self._old = old
+
+        def get_option(self, k, d=None):
+            return self._old.get_option(k, d)
+
+        def set_option(self, k, v):
+            self._old.set_option(k, v)
+
+        def save(self):
+            world.saves = getattr(world, 'saves', 0) + 1
+            return True
+
+    def fake_load(folder, legacy=None, legacy_keys=(), name='settings.ini'):
+        return FileCfg(legacy())
+
+    if not answers.get('_real_settings'):
+        hvac_settings.load = fake_load
+
     script = types.SimpleNamespace(get_output=get_output, exit=script_exit,
                                    get_config=get_config, save_config=lambda: None)
     revit = types.SimpleNamespace(doc=doc, uidoc=uidoc)
@@ -636,6 +670,7 @@ def run_button(world, answers=None, loop=False, path=None):
     try:
         world.ns = runpy.run_path(path or SCRIPT, run_name='__main__')
     finally:
+        hvac_settings.load = real_load
         for k, v in saved.items():
             if v is None:
                 sys.modules.pop(k, None)
@@ -1424,6 +1459,35 @@ class FlexButtonTests(unittest.TestCase):
             self.assertNotIn('import uuid', text, path)
             self.assertNotIn('import tempfile', text, path)
 
+    def test_settings_go_to_own_ini_file_and_migrate_from_pyrevit_section(self):
+        tmp = tempfile.mkdtemp()
+        old_env = os.environ.get(hvac_settings.ENV_DIR)
+        os.environ[hvac_settings.ENV_DIR] = tmp
+        try:
+            w = scenario()
+            w.picks = [w.a, w.b]
+            run_button(w, {u'Тип гибкого': 'Flex Alu', '_real_settings': True,
+                           '_config': {'loop': 'true'}})
+            values = hvac_settings.read_file(os.path.join(tmp, 'QuickFlexConnect', 'settings.ini'))
+            self.assertEqual((values['loop'], values['flex_type']), (u'true', u'Flex Alu'))      # перенесено + новая запись
+            self.assertFalse(os.path.exists(os.path.join(os.path.dirname(SCRIPT), 'settings.ini')))
+        finally:
+            if old_env is None:
+                os.environ.pop(hvac_settings.ENV_DIR, None)
+            else:
+                os.environ[hvac_settings.ENV_DIR] = old_env
+
+    def test_work_windows_can_be_dragged(self):
+        w = scenario()
+        w.picks = [w.a, w.b]
+        run_button(w, {u'Тип гибкого': 'Flex Alu'})
+        wins = [l[1] for l in w.log if l[0] == 'drag']
+        self.assertGreaterEqual(len(wins), 1)
+        for win in wins:
+            self.assertEqual(len(win.MouseLeftButtonDown.handlers), 1)
+            win.MouseLeftButtonDown.handlers[0](None, None)
+            self.assertEqual(win.dragged, 1)
+
     def test_config_object_is_read_once_per_run(self):
         w = scenario()
         w.picks = [w.a, w.b]
@@ -1643,6 +1707,14 @@ class FlexButtonTests(unittest.TestCase):
         self._project_with_enum(w, on_instance=False)
         run_button(w, {'_form': {'value': u'Гибкий', 'loop': False}}, path=CONFIG)
         self.assertEqual(w.form.options, [NO, u'Жорсткий', u'Гибкий', u'Спіральний'])
+
+    def test_settings_window_can_be_dragged(self):
+        w = scenario()
+        run_button(w, {'_form': {'value': u'Гибкий', 'loop': False}}, path=CONFIG)
+        wins = [l[1] for l in w.log if l[0] == 'drag']
+        self.assertEqual(len(wins), 1)
+        wins[0].MouseLeftButtonDown.handlers[0](None, None)
+        self.assertEqual(wins[0].dragged, 1)
 
     def test_no_options_available_window_still_opens_with_default_text(self):
         w = scenario()                                                # у проєкті немає параметра

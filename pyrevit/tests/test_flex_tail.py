@@ -19,9 +19,11 @@ SCRIPT = os.path.join(HERE, '..', 'HVAC.extension', 'HVAC.tab', 'Systems.panel',
 CONFIG = os.path.join(HERE, '..', 'HVAC.extension', 'HVAC.tab', 'Systems.panel', 'FlexTail.pushbutton', 'config.py')
 LIB = os.path.join(HERE, '..', 'HVAC.extension', 'lib')
 os.environ.setdefault('HVAC_LOG_DIR', tempfile.mkdtemp())
+os.environ.setdefault('HVAC_SETTINGS_DIR', tempfile.mkdtemp())      # файлы настроек тестов — не в папки кнопок
 if LIB not in sys.path:
     sys.path.insert(0, LIB)
 import hvac_log
+import hvac_settings
 
 MM = 1.0 / 304.8             # миллиметр в футах
 
@@ -460,6 +462,11 @@ def run_button(world, answers=None, path=None):
             if 'param_value' in self.ctl:
                 assert 'IsEditable="False"' in xaml            # только выбор из списка, вводить своё нельзя
             self.closed = False
+            self.MouseLeftButtonDown = Event()
+            self.dragged = 0
+
+        def DragMove(self):
+            self.dragged += 1
 
         def FindName(self, name):
             return self.ctl[name]
@@ -469,6 +476,7 @@ def run_button(world, answers=None, path=None):
 
         def ShowDialog(self):
             c = self.ctl
+            world.log.append(('drag', self))                       # окно двигается: обработчик нажатия подключён
             if 'param_value' in c:                                 # окно настроек
                 world.log.append(('settingswin', list(c['param_value'].Items), c['param_value'].SelectedItem,
                                   c['default_length'].Text, c['remember'].IsChecked))
@@ -549,6 +557,32 @@ def run_button(world, answers=None, path=None):
     def script_exit():
         raise ExitScript('exit')
 
+
+    real_load = hvac_settings.load
+
+    class FileCfg(object):
+        """Подмена settings.ini: тот же словарь, что и у старой секции pyRevit (тесты задают и читают его так же)."""
+        path = u'settings.ini'
+
+        def __init__(self, old):
+            self._old = old
+
+        def get_option(self, k, d=None):
+            return self._old.get_option(k, d)
+
+        def set_option(self, k, v):
+            self._old.set_option(k, v)
+
+        def save(self):
+            world.saves = getattr(world, 'saves', 0) + 1
+            return True
+
+    def fake_load(folder, legacy=None, legacy_keys=(), name='settings.ini'):
+        return FileCfg(legacy())
+
+    if not answers.get('_real_settings'):
+        hvac_settings.load = fake_load
+
     script = types.SimpleNamespace(get_output=lambda: Output(), exit=script_exit, get_config=get_config,
                                    save_config=save_config)
 
@@ -575,6 +609,7 @@ def run_button(world, answers=None, path=None):
     try:
         world.ns = runpy.run_path(path or SCRIPT, run_name='__main__')
     finally:
+        hvac_settings.load = real_load
         for k, v in saved.items():
             if v is None:
                 sys.modules.pop(k, None)
@@ -849,6 +884,15 @@ class FlexTailTests(unittest.TestCase):
         self.assertNotIn(u'Жёсткий', win[1] + win[2])
         self.assertEqual((win[5], win[6]), ([u'Flex Alu', u'Flex Round'], u'Flex Alu'))
 
+    def test_work_window_can_be_dragged(self):
+        w = scene(2000)
+        click(w)
+        self.go(w)
+        wins = [l[1] for l in w.log if l[0] == 'drag']
+        self.assertEqual(len(wins), 1)
+        wins[0].MouseLeftButtonDown.handlers[0](None, None)             # нажали кнопку мыши в окне
+        self.assertEqual(wins[0].dragged, 1)
+
     def test_chip_puts_value_into_the_field(self):
         w = scene(3000)
         click(w)
@@ -872,6 +916,30 @@ class FlexTailTests(unittest.TestCase):
         win = [l for l in w2.log if l[0] == 'tailwin'][0]
         self.assertEqual(win[3], u'1200')
         self.assertEqual(w2.created[0].created_with['points'][1], (round(1200 * MM, 6), 0, 0))
+
+    def test_settings_go_to_own_ini_file_and_migrate_from_pyrevit_section(self):
+        tmp = tempfile.mkdtemp()
+        old_env = os.environ.get(hvac_settings.ENV_DIR)
+        os.environ[hvac_settings.ENV_DIR] = tmp
+        try:
+            w = scene(3000)
+            click(w)
+            run_button(w, {'_real_settings': True, '_window': [{'length': '1200'}],
+                           '_config': {'flex_tail': {'length_mm': u'999', 'config_value': u'Спиральный'}}})
+            self.assertEqual([l for l in w.log if l[0] == 'tailwin'][0][3], u'999')        # перенесено из старой секции pyRevit
+            path = os.path.join(tmp, 'FlexTail', 'settings.ini')
+            values = hvac_settings.read_file(path)
+            self.assertEqual((values['length_mm'], values['config_value']), (u'1200', u'Спиральный'))
+            w2 = scene(3000)
+            click(w2)
+            run_button(w2, {'_real_settings': True, '_config': {}})                  # теперь старая секция пуста — берём файл
+            self.assertEqual([l for l in w2.log if l[0] == 'tailwin'][0][3], u'1200')
+            self.assertFalse(os.path.exists(os.path.join(os.path.dirname(SCRIPT), 'settings.ini')))
+        finally:
+            if old_env is None:
+                os.environ.pop(hvac_settings.ENV_DIR, None)
+            else:
+                os.environ[hvac_settings.ENV_DIR] = old_env
 
     def test_last_type_is_preselected_and_remembered(self):
         w = scene(3000)
@@ -1186,6 +1254,13 @@ class FlexTailConfigTests(unittest.TestCase):
         w = scene(2000)
         w.flex_types[0].param = EnumParam(u'Гибкая конфигурация', options)
         return w
+
+    def test_settings_window_can_be_dragged(self):
+        w, _ = self.go()
+        wins = [l[1] for l in w.log if l[0] == 'drag']
+        self.assertEqual(len(wins), 1)
+        wins[0].MouseLeftButtonDown.handlers[0](None, None)
+        self.assertEqual(wins[0].dragged, 1)
 
     def test_window_defaults_without_project_options(self):
         w, _ = self.go()

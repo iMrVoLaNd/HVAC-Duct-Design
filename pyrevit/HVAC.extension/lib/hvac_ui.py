@@ -24,6 +24,7 @@ LIGHT = u'#EAF0F8'
 
 # Имена, которые окна ожидают найти (FindName): заголовок в шапке и блок «найденные данные».
 TITLE_NAME = u'title_text'
+TITLE_BAR_NAME = u'title_bar'
 INFO_TITLE_NAME = u'info_title'
 INFO_NAME = u'info'
 
@@ -198,7 +199,7 @@ _WINDOW = u'''<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presen
         FontFamily="Segoe UI" FontSize="14" Foreground="@NAVY@" SnapsToDevicePixels="True">
   <Window.Resources>@RESOURCES@  </Window.Resources>
   <DockPanel>
-    <Border DockPanel.Dock="Top" Background="@NAVY@" Padding="14,9">
+    <Border x:Name="title_bar" DockPanel.Dock="Top" Background="@NAVY@" Padding="14,9">
       <TextBlock x:Name="title_text" Text="@TITLE@" Foreground="@LIGHT@" FontSize="15" FontWeight="SemiBold"/>
     </Border>
     <StackPanel Margin="16,14,16,16">
@@ -255,6 +256,21 @@ def buttons(ok_name, ok_text, cancel_name=u'cancel_btn', cancel_text=u'Отме�
             u'        <Button x:Name="%s" Content="%s" MinWidth="96" Margin="0,0,8,0" IsDefault="True"/>\n'
             u'        <Button x:Name="%s" Content="%s" MinWidth="96" IsCancel="True"/>\n'
             u'      </StackPanel>' % (ok_name, escape(ok_text), cancel_name, escape(cancel_text)))
+
+
+def enable_drag(window):
+    """Окно без системной рамки (WindowStyle=None) само не двигается: тащим его за любое место, где нет элемента
+    управления (шапка, подписи, поля между ними). Вызывать после инициализации окна. True — обработчик подключён."""
+    def on_mouse_down(sender, args):
+        try:
+            window.DragMove()                # бросает исключение, если кнопку уже отпустили — это не ошибка
+        except Exception:
+            pass
+    try:
+        window.MouseLeftButtonDown += on_mouse_down
+        return True
+    except Exception:
+        return False
 
 
 def set_title(window, text):

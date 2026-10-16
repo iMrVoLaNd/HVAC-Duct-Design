@@ -28,6 +28,7 @@ except ImportError:
                 u'(все файлы) и перезагрузите pyRevit.\n\nИскал здесь: {0}'.format(_LIB),
                 title=u'HVAC', exitscript=True)
 TOOL = 'FlexTail'
+hvac_log.configure(os.path.dirname(os.path.abspath(__file__)), 'FlexTail')       # журнал — в папке этой кнопки
 
 try:
     from pyrevit import revit, DB, UI, script
@@ -36,6 +37,7 @@ try:
 
     import hvac_flex_settings
     import hvac_revit
+    import hvac_settings
     import hvac_sizes
     import hvac_tail
     import hvac_ui
@@ -46,7 +48,10 @@ except Exception:
 doc = revit.doc
 uidoc = revit.uidoc
 
-TAIL_SECTION = hvac_tail.SECTION                # все настройки этой кнопки — в её собственной секции (flex_tail)
+TAIL_SECTION = hvac_tail.SECTION                # старая секция pyRevit: из неё один раз переносим настройки в settings.ini
+PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
+LEGACY_KEYS = ('config_value', 'config_value_num', 'config_value_ctx', 'length_mm', 'default_length_mm',
+               'remember_length', 'flex_type')
 BEND_FACTOR = 0.3                               # запасной вариант FlexDuct.Create: «вылет» от конца (доля длины)
 BEND_MIN_FT = 0.3
 
@@ -325,27 +330,27 @@ def flex_types():
     return sorted(DB.FilteredElementCollector(doc).OfClass(DB.Mechanical.FlexDuctType), key=type_name)
 
 
-_CFGS = {}
+_CFGS = []
 
 
-def get_cfg(section):
-    """Объект конфигурации pyRevit; читаем файл настроек один раз за запуск."""
-    if section not in _CFGS:
-        _CFGS[section] = script.get_config(section)
-    return _CFGS[section]
+def get_cfg():
+    """Личный файл настроек кнопки (settings.ini в её папке); читаем один раз за запуск."""
+    if not _CFGS:
+        _CFGS.append(hvac_settings.load(PLUGIN_DIR, legacy=lambda: script.get_config(TAIL_SECTION), legacy_keys=LEGACY_KEYS))
+    return _CFGS[0]
 
 
 def load_last(key):
     try:
-        return get_cfg(TAIL_SECTION).get_option(key, u'')
+        return get_cfg().get_option(key, u'')
     except Exception:
         return u''
 
 
 def save_last(key, value):
     try:
-        get_cfg(TAIL_SECTION).set_option(key, value)
-        script.save_config()
+        get_cfg().set_option(key, value)
+        get_cfg().save()
     except Exception:
         pass
 
@@ -429,6 +434,7 @@ def ask_length_and_type_window(names, last_type, last_length, info):
     class TailWindow(forms.WPFWindow):
         def __init__(self):
             forms.WPFWindow.__init__(self, tail_xaml(), literal_string=True)
+            hvac_ui.enable_drag(self)
             self.result = None
             hvac_ui.fill_info(self, info[0], info[1])
             self.length = self.FindName('length')
@@ -666,7 +672,7 @@ def main():
     entries = [(type_name(t), type_shape(t), t) for t in types]
     by_name = dict((n, t) for n, _s, t in entries)
     entry_pairs = [(n, s) for n, s, _t in entries]
-    cfg = get_cfg(TAIL_SECTION)
+    cfg = get_cfg()
     ctx = hvac_revit.app_context(doc)
     state = {'value': hvac_flex_settings.get_config_value(cfg),
              'number': hvac_flex_settings.get_config_number(cfg, ctx), 'learned': None, 'warnings': []}
@@ -738,7 +744,7 @@ def main():
         script.get_output().print_md(u'* **Внимание:** {0}'.format(w))       # окно вывода — только когда есть что показать
     if state['learned'] is not None and state['learned'] != hvac_flex_settings.get_config_number(cfg, ctx):
         hvac_flex_settings.set_config_number(cfg, state['learned'], ctx)       # в следующий раз — без перебора
-        script.save_config()
+        cfg.save()
 
 
 hvac_log.run(TOOL, main, doc)

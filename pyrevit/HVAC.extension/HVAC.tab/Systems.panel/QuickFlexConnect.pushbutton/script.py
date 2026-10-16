@@ -29,6 +29,7 @@ except ImportError:
                 u'(все файлы) и перезагрузите pyRevit.\n\nИскал здесь: {0}'.format(_LIB),
                 title=u'HVAC', exitscript=True)
 TOOL = 'QuickFlexConnect'
+hvac_log.configure(os.path.dirname(os.path.abspath(__file__)), 'QuickFlexConnect')       # журнал — в папке этой кнопки
 
 try:
     from pyrevit import revit, DB, UI, script
@@ -37,6 +38,7 @@ try:
 
     import hvac_flex_settings
     import hvac_revit
+    import hvac_settings
     import hvac_sizes
     import hvac_ui
 except Exception:
@@ -69,7 +71,9 @@ def _unique_namespace(prefix):
 MIN_LEN_FT = 1.0 / 10.0 / 12.0       # Revit не будує MEP-криві коротші за 1/10 дюйма
 BEND_FACTOR = 0.3                    # «виліт» кривої від конектора (частка відстані) у запасному варіанті
 BEND_MIN_FT = 0.3
-CONFIG_SECTION = 'flex_between'       # ім'я секції конфігурації лишилось старим, щоб не втратити збережені налаштування
+CONFIG_SECTION = hvac_flex_settings.SECTION      # старая секция pyRevit: из неё один раз переносим настройки в settings.ini
+PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
+LEGACY_KEYS = ('config_value', 'config_value_num', 'config_value_ctx', 'loop', 'type_from_model', 'flex_type', 'system_type')
 
 # Які елементи можна вибирати (назви BuiltInCategory). Потрібне додайте, зайве приберіть.
 ALLOWED_CATEGORIES = [
@@ -364,9 +368,9 @@ _CFG = []
 
 
 def get_cfg():
-    """Об'єкт конфігурації pyRevit — читаємо файл налаштувань один раз за запуск, а не при кожному зверненні."""
+    """Личный файл настроек кнопки (settings.ini в её папке); читаем один раз за запуск."""
     if not _CFG:
-        _CFG.append(script.get_config(CONFIG_SECTION))
+        _CFG.append(hvac_settings.load(PLUGIN_DIR, legacy=lambda: script.get_config(CONFIG_SECTION), legacy_keys=LEGACY_KEYS))
     return _CFG[0]
 
 
@@ -380,7 +384,7 @@ def load_last(key):
 def save_last(key, value):
     try:
         get_cfg().set_option(key, value)
-        script.save_config()
+        get_cfg().save()
     except Exception:
         pass
 
@@ -399,6 +403,7 @@ def pick_in_small_window(names, last, title, info=None):
     class PickWindow(forms.WPFWindow):
         def __init__(self):
             forms.WPFWindow.__init__(self, pick_xaml(info is not None), literal_string=True)
+            hvac_ui.enable_drag(self)
             hvac_ui.set_title(self, title)
             if info is not None:
                 hvac_ui.fill_info(self, info[0], info[1])
@@ -738,6 +743,7 @@ def ask_size_and_type_window(sizes, custom_sizes, entries, last, box_dims=None, 
         def __init__(self):
             has_custom = bool(custom_sizes) or not box_dims
             forms.WPFWindow.__init__(self, build_xaml(bool(box_dims), has_custom, info is not None), literal_string=True)
+            hvac_ui.enable_drag(self)
             if info is not None:
                 hvac_ui.fill_info(self, info[0], info[1])
             self.result = None
@@ -1070,7 +1076,7 @@ def main():
         script.get_output().print_md(u'* **Внимание:** {0}'.format(w))      # вікно виводу — лише коли є що показати
     if system_state['learned'] is not None and system_state['learned'] != hvac_flex_settings.get_config_number(cfg, ctx):
         hvac_flex_settings.set_config_number(cfg, system_state['learned'], ctx)      # наступного разу — без перебору
-        script.save_config()
+        cfg.save()
     hvac_log.log(TOOL, u'створено гнучких повітроводів: {0}'.format(made))      # вікно виводу на успіх не відкриваємо
 
 

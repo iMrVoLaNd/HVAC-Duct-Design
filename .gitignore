@@ -1,2 +1,7 @@
 __pycache__/
 *.pyc
+
+# журналы и личные настройки кнопок pyRevit (лежат рядом со скриптом кнопки)
+pyrevit/HVAC.extension/**/*.log
+pyrevit/HVAC.extension/**/*.log.1
+pyrevit/HVAC.extension/**/settings.ini

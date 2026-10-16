@@ -21,12 +21,14 @@ except ImportError:
                 u'(все файлы) и перезагрузите pyRevit.\n\nИскал здесь: {0}'.format(_LIB),
                 title=u'HVAC', exitscript=True)
 TOOL = 'QuickFlexConnect_config'
+hvac_log.configure(os.path.dirname(os.path.abspath(__file__)), 'QuickFlexConnect')       # журнал — в папке этой кнопки
 
 try:
     from pyrevit import revit, DB, script
 
     import hvac_flex_settings
     import hvac_revit
+    import hvac_settings
     import hvac_ui
 except Exception:
     hvac_log.log_exception(TOOL, u'імпорт модулів')
@@ -44,7 +46,9 @@ class _LazyForms(object):
 
 
 forms = _LazyForms()
-CONFIG_SECTION = hvac_flex_settings.SECTION
+CONFIG_SECTION = hvac_flex_settings.SECTION      # старая секция pyRevit: из неё один раз переносим настройки в settings.ini
+PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
+LEGACY_KEYS = ('config_value', 'config_value_num', 'config_value_ctx', 'loop', 'type_from_model', 'flex_type', 'system_type')
 TITLE = u'QuickFlexConnect — настройки'
 NO_CHANGE = u'(не менять параметр)'      # пункт списку: значення порожнє — параметр не чіпати
 
@@ -114,6 +118,7 @@ def ask_with_window(value, loop, options, pick_type):
     class SettingsWindow(forms.WPFWindow):
         def __init__(self):
             forms.WPFWindow.__init__(self, settings_xaml(), literal_string=True)
+            hvac_ui.enable_drag(self)
             self.result = None
             combo = self.FindName('param_value')
             items = choices_for(value, options)
@@ -152,7 +157,7 @@ def ask_with_dialogs(value, loop, options, pick_type):
 
 
 def main():
-    cfg = script.get_config(CONFIG_SECTION)
+    cfg = hvac_settings.load(PLUGIN_DIR, legacy=lambda: script.get_config(CONFIG_SECTION), legacy_keys=LEGACY_KEYS)
     value = hvac_flex_settings.get_config_value(cfg)
     loop = hvac_flex_settings.is_loop(cfg)
     pick_type = hvac_flex_settings.is_type_from_model(cfg)
@@ -171,7 +176,8 @@ def main():
     hvac_flex_settings.set_config_value(cfg, result[0], number, hvac_revit.app_context(doc))
     hvac_flex_settings.set_loop(cfg, result[1])
     hvac_flex_settings.set_type_from_model(cfg, result[2])
-    script.save_config()
+    if not cfg.save():
+        forms.alert(u'Не удалось записать файл настроек:\n{0}'.format(cfg.path), title=TITLE)
     hvac_log.log(TOOL, u'збережено: «Гибкая конфигурация» = «{0}» (число {1}), цикл {2}, тип з моделі {3}'.format(
         result[0], number, result[1], result[2]))
 
