@@ -155,13 +155,13 @@ def _report(tool, text):
     try:
         from pyrevit import script
         out = script.get_output()
-        out.print_md(u'## Помилка в кнопці «{0}»'.format(tool))
+        out.print_md(u'## Ошибка в кнопке «{0}»'.format(tool))
         out.print_md(u'Журнал: `{0}`'.format(path))
         out.print_md(u'```\n{0}\n```'.format(text))
     except Exception:
         pass
     try:
         from pyrevit import forms
-        forms.alert(u'Помилка в кнопці «{0}».\nЖурнал: {1}'.format(tool, path), title=u'HVAC')
+        forms.alert(u'Ошибка в кнопке «{0}».\nЖурнал: {1}'.format(tool, path), title=u'HVAC')
     except Exception:
         pass

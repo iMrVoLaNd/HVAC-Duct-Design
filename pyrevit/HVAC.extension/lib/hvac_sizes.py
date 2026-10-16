@@ -7,7 +7,7 @@
 
 FT_TO_MM = 304.8
 TOLERANCE_MM = 0.5          # різниця менша за пів міліметра — розміри однакові
-SHAPE_NAMES = {'round': u'круглий', 'rect': u'прямокутний', 'oval': u'овальний'}
+SHAPE_NAMES = {'round': u'круглый', 'rect': u'прямоугольный', 'oval': u'овальный'}
 
 
 def round_size(diameter):
