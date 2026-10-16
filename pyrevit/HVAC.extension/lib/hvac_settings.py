@@ -92,6 +92,9 @@ def load(folder, legacy=None, legacy_keys=(), name=FILE_NAME):
     title = os.path.basename(folder.rstrip(u'\\/'))
     if title.lower().endswith(u'.pushbutton'):
         title = title[:-len(u'.pushbutton')]
+    head, sep, rest = title.partition(u'_')
+    if sep and head.isdigit():            # «102_FlexTail» -> «FlexTail»: номер в имени папки задаёт только порядок на ленте
+        title = rest
     override = os.environ.get(ENV_DIR)
     if override:
         folder = os.path.join(override, title)

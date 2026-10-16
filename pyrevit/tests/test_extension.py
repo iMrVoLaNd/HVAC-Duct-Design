@@ -21,7 +21,7 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 EXT = os.path.join(HERE, '..', 'HVAC.extension')
 LIB = os.path.join(EXT, 'lib')
-SCRIPT = os.path.join(EXT, 'HVAC.tab', 'Systems.panel', 'SystemsTemplate.pushbutton', 'script.py')
+SCRIPT = os.path.join(EXT, 'HVAC.tab', 'Systems.panel', '103_SystemsTemplate.pushbutton', 'script.py')
 os.environ['HVAC_LOG_DIR'] = tempfile.mkdtemp()      # журнал тестів — не в реальний %APPDATA%
 sys.path.insert(0, LIB)
 

@@ -15,8 +15,8 @@ import types
 import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SCRIPT = os.path.join(HERE, '..', 'HVAC.extension', 'HVAC.tab', 'Systems.panel', 'FlexTail.pushbutton', 'script.py')
-CONFIG = os.path.join(HERE, '..', 'HVAC.extension', 'HVAC.tab', 'Systems.panel', 'FlexTail.pushbutton', 'config.py')
+SCRIPT = os.path.join(HERE, '..', 'HVAC.extension', 'HVAC.tab', 'Systems.panel', '102_FlexTail.pushbutton', 'script.py')
+CONFIG = os.path.join(HERE, '..', 'HVAC.extension', 'HVAC.tab', 'Systems.panel', '102_FlexTail.pushbutton', 'config.py')
 LIB = os.path.join(HERE, '..', 'HVAC.extension', 'lib')
 os.environ.setdefault('HVAC_LOG_DIR', tempfile.mkdtemp())
 os.environ.setdefault('HVAC_SETTINGS_DIR', tempfile.mkdtemp())      # файлы настроек тестов — не в папки кнопок

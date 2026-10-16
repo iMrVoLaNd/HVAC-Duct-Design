@@ -18,8 +18,8 @@ import unittest
 
 NO = u'(не менять параметр)'          # пункт «не чіпати параметр» у списку налаштувань
 HERE = os.path.dirname(os.path.abspath(__file__))
-SCRIPT = os.path.join(HERE, '..', 'HVAC.extension', 'HVAC.tab', 'Systems.panel', 'QuickFlexConnect.pushbutton', 'script.py')
-CONFIG = os.path.join(HERE, '..', 'HVAC.extension', 'HVAC.tab', 'Systems.panel', 'QuickFlexConnect.pushbutton', 'config.py')
+SCRIPT = os.path.join(HERE, '..', 'HVAC.extension', 'HVAC.tab', 'Systems.panel', '101_QuickFlexConnect.pushbutton', 'script.py')
+CONFIG = os.path.join(HERE, '..', 'HVAC.extension', 'HVAC.tab', 'Systems.panel', '101_QuickFlexConnect.pushbutton', 'config.py')
 LIB = os.path.join(HERE, '..', 'HVAC.extension', 'lib')
 os.environ['HVAC_LOG_DIR'] = tempfile.mkdtemp()      # журнал тестів — не в реальний %APPDATA%
 os.environ.setdefault('HVAC_SETTINGS_DIR', tempfile.mkdtemp())      # файлы настроек тестов — не в папки кнопок
@@ -1843,7 +1843,7 @@ class FlexButtonTests(unittest.TestCase):
         copy = os.path.join(tmp, 'HVAC.extension')
         shutil.copytree(ext, copy)
         os.remove(os.path.join(copy, 'lib', 'hvac_log.py'))             # «не докопіювали» файл
-        script_copy = os.path.join(copy, 'HVAC.tab', 'Systems.panel', 'QuickFlexConnect.pushbutton', 'script.py')
+        script_copy = os.path.join(copy, 'HVAC.tab', 'Systems.panel', '101_QuickFlexConnect.pushbutton', 'script.py')
         restore = self._isolated_imports()
         try:
             w = scenario()

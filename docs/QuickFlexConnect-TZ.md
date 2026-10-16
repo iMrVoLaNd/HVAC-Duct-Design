@@ -2,7 +2,7 @@
 
 **Платформа:** Revit 2026, pyRevit (IronPython 3). **Назначение:** построить гибкий воздуховод между двумя коннекторами двумя кликами.
 
-**Название:** кнопка и команда — `QuickFlexConnect` (папка `QuickFlexConnect.pushbutton` на вкладке HVAC, панель Systems).
+**Название:** кнопка и команда — `QuickFlexConnect` (папка `101_QuickFlexConnect.pushbutton` на вкладке HVAC, панель Systems).
 
 ## 1. Цель
 

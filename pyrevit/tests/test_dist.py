@@ -26,9 +26,9 @@ class ZipTests(unittest.TestCase):
 
     def test_contains_both_buttons_and_whole_lib(self):
         names = self.names()
-        for part in ('HVAC.extension/HVAC.tab/Systems.panel/QuickFlexConnect.pushbutton/script.py',
-                     'HVAC.extension/HVAC.tab/Systems.panel/FlexTail.pushbutton/script.py',
-                     'HVAC.extension/HVAC.tab/Systems.panel/FlexTail.pushbutton/config.py',
+        for part in ('HVAC.extension/HVAC.tab/Systems.panel/101_QuickFlexConnect.pushbutton/script.py',
+                     'HVAC.extension/HVAC.tab/Systems.panel/102_FlexTail.pushbutton/script.py',
+                     'HVAC.extension/HVAC.tab/Systems.panel/102_FlexTail.pushbutton/config.py',
                      'HVAC.extension/lib/hvac_ui.py', 'HVAC.extension/lib/hvac_settings.py',
                      'HVAC.extension/lib/hvac_log.py', 'HVAC.extension/lib/hvac_tail.py', builder.README_NAME):
             self.assertIn(part, names)

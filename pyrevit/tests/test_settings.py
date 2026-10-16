@@ -118,6 +118,23 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual(hs.load(self.folder).get_option('a'), u'2')
 
 
+class NumberedFolderTests(unittest.TestCase):
+    def test_number_prefix_is_not_part_of_the_button_name(self):
+        no_env_override(self)
+        root = tempfile.mkdtemp()
+        folder = os.path.join(root, '102_FlexTail.pushbutton')
+        cfg = hs.load(folder)
+        self.assertEqual(cfg.title, u'FlexTail')
+        cfg.set_option('a', '1')
+        self.assertTrue(cfg.save())
+        self.assertTrue(read(os.path.join(folder, 'settings.ini')).startswith(u'# Настройки кнопки FlexTail.'))
+        os.environ[hs.ENV_DIR] = root
+        try:
+            self.assertEqual(hs.load(folder).path, os.path.join(root, 'FlexTail', 'settings.ini'))
+        finally:
+            del os.environ[hs.ENV_DIR]
+
+
 class MigrationTests(unittest.TestCase):
     def setUp(self):
         no_env_override(self)
