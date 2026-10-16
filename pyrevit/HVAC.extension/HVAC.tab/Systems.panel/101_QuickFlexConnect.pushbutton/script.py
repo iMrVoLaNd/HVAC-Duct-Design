@@ -359,7 +359,7 @@ def pair_info(e0, e1, s0, s1, distance_mm=None):
     if hvac_sizes.same_size(s0, s1):
         lines.append(hvac_ui.INDENT + u', '.join(x for x in (size_text(s0), length) if x))
     else:
-        lines.append(hvac_ui.INDENT + u', '.join(x for x in (length, u'размер — по вашему выбору') if x))
+        lines.append(hvac_ui.INDENT + u', '.join(x for x in (length, u'размер — по выбору') if x))
     return u'Выбранные элементы', u'\n'.join(lines)
 
 

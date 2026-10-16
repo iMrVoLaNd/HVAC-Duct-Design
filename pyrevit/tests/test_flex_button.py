@@ -1027,7 +1027,7 @@ class FlexButtonTests(unittest.TestCase):
         self.assertEqual(lines[3], hvac_ui.INDENT + u'«Тип-2»')
         self.assertEqual(lines[4], u'Будет создан гибкий воздуховод')
         self.assertTrue(lines[5].startswith(hvac_ui.INDENT + u'длиной около '), lines[5])       # размеры разные
-        self.assertTrue(lines[5].endswith(u' мм, размер — по вашему выбору'), lines[5])
+        self.assertTrue(lines[5].endswith(u' мм, размер — по выбору'), lines[5])
 
     def test_type_window_for_equal_sizes_also_shows_elements_and_flex_size(self):
         w = scenario()
