@@ -179,6 +179,9 @@
    (в примере — `C:\pyRevit\HVAC`) → **Save Settings and Reload**.
 4. На ленте появится вкладка **HVAC**.
 
+Презентации (PDF): [QuickFlexConnect](https://github.com/iMrVoLaNd/HVAC-Duct-Design/raw/main/dist/QuickFlexConnect-slides.pdf),
+[FlexTail](https://github.com/iMrVoLaNd/HVAC-Duct-Design/raw/main/dist/FlexTail-slides.pdf).
+
 Из репозитория: в шаге 3 выберите папку **`pyrevit`** (ту, внутри которой лежит `HVAC.extension`).
 
 Архив собирается командой `python3 tools/build_plugin_zip.py` (результат — `dist/HVAC.extension.zip`); тест
