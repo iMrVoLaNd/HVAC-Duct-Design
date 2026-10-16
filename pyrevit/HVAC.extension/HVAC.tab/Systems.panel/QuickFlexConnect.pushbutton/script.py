@@ -548,6 +548,35 @@ def standard_sizes(shape):
     return []
 
 
+def standard_box_dims(shape):
+    """Стандартные ширина/высота прямоугольных ('rect') или овальных ('oval') воздуховодов из настроек механики
+    проекта: отсортированный список размеров в футах (одинаковые с точностью 0,1 мм склеены). Какие именно поля
+    (ширина, высота) заполнены у записи списка, Revit отдаёт по-разному, поэтому берём оба и объединяем.
+    Не удалось прочитать — пустой список (тогда выбор «своего» размера для этой формы недоступен)."""
+    if shape not in ('rect', 'oval'):
+        return []
+    try:
+        wanted = DB.Mechanical.DuctShape.Rectangular if shape == 'rect' else DB.Mechanical.DuctShape.Oval
+        settings = DB.Mechanical.DuctSizeSettings.GetDuctSizeSettings(doc)
+        for pair in settings:
+            if pair.Key == wanted:
+                found = {}
+                for m in pair.Value:
+                    if not getattr(m, 'UsedInSizeLists', True):
+                        continue
+                    for attr in ('NominalWidth', 'NominalHeight'):
+                        try:
+                            value = float(getattr(m, attr))
+                        except Exception:
+                            continue
+                        if value > 0:
+                            found[round(hvac_sizes.mm(value), 1)] = value
+                return [found[k] for k in sorted(found)]
+    except Exception:
+        hvac_log.log_exception(TOOL, u'стандартные размеры для формы «{0}» не прочитаны (не критично)'.format(shape))
+    return []
+
+
 def apply_size(flex, size):
     """Задати розмір гнучкого повітровода: діаметр для круглого, ширина й висота для прямокутного та овального."""
     try:
@@ -663,7 +692,8 @@ BUILD_XAML = u"""
       <ToggleButton x:Name="chip0" MinWidth="120" Padding="12,5" Margin="0,0,8,0"/>
       <ToggleButton x:Name="chip1" MinWidth="120" Padding="12,5"/>
     </StackPanel>
-    <ComboBox x:Name="custom_size" Margin="0,0,0,12"/>
+    <ComboBox x:Name="custom_size" Margin="0,0,0,6"/>
+<!--BOX_ROW-->
     <TextBlock Text="Тип гибкого воздуховода:" Margin="0,0,0,4"/>
     <ComboBox x:Name="types" Margin="0,0,0,12"/>
     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
@@ -674,23 +704,43 @@ BUILD_XAML = u"""
 </Window>
 """
 
+BOX_ROW_XAML = u'''    <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
+      <ComboBox x:Name="custom_w" Width="184" Margin="0,0,8,0" IsEnabled="False"/>
+      <ComboBox x:Name="custom_h" Width="184" IsEnabled="False"/>
+    </StackPanel>'''
+
 CUSTOM_PLACEHOLDER = u'Другой размер…'
+CUSTOM_WIDTH = u'Ширина…'
+CUSTOM_HEIGHT = u'Высота…'
 NO_CUSTOM_SIZES = u'(других стандартных размеров нет)'
 
 
-def ask_size_and_type_window(sizes, custom_sizes, entries, last):
-    """Одне вікно, коли розміри елементів різні: два «чипи» з розмірами обох конекторів (клік — вибрано, за
-    замовчуванням перший), нижче випадаючий список «інший розмір», ще нижче тип. Список типів підлаштовується під
-    форму вибраного розміру. Повертає (розмір, ім'я типу) або None, якщо вікно закрито."""
+def build_xaml(with_box):
+    """XAML окна размера и типа; строка «ширина / высота» (для прямоугольных и овальных) — только если для
+    них нашлись стандартные размеры проекта."""
+    return BUILD_XAML.replace(u'<!--BOX_ROW-->', BOX_ROW_XAML if with_box else u'')
+
+
+def ask_size_and_type_window(sizes, custom_sizes, entries, last, box_dims=None):
+    """Одно окно, когда размеры элементов разные: две плашки с размерами обоих коннекторов (по умолчанию выбрана
+    первая), ниже список «Другой размер…» (стандартные диаметры), для прямоугольных и овальных — два списка
+    «Ширина…» и «Высота…» (стандартные размеры проекта), ещё ниже тип. Список типов подстраивается под форму
+    выбранного размера. box_dims — {'rect': [футы], 'oval': [футы]}. Возвращает (размер, имя типа) или None, если
+    окно закрыто."""
+    box_dims = box_dims or {}
 
     class BuildWindow(forms.WPFWindow):
         def __init__(self):
-            forms.WPFWindow.__init__(self, BUILD_XAML, literal_string=True)
+            forms.WPFWindow.__init__(self, build_xaml(bool(box_dims)), literal_string=True)
             self.result = None
             self.size = sizes[0]
+            self.base = sizes[0]                 # размер выбранной плашки: от него считаются ширина и высота
+            self.busy = False                    # пока заполняем списки, их SelectionChanged не обрабатываем
             self.chips = [self.FindName('chip0'), self.FindName('chip1')]
             self.custom = self.FindName('custom_size')
             self.types = self.FindName('types')
+            self.box_w = self.FindName('custom_w') if box_dims else None
+            self.box_h = self.FindName('custom_h') if box_dims else None
             for i, chip in enumerate(self.chips):
                 chip.Content = u'{0}-й: {1}'.format(i + 1, hvac_sizes.label(sizes[i]))
             chip_handlers = (self.on_chip0, self.on_chip1)
@@ -702,6 +752,9 @@ def ask_size_and_type_window(sizes, custom_sizes, entries, last):
             self.custom.SelectedIndex = 0
             self.custom.IsEnabled = bool(custom_sizes)
             self.custom.SelectionChanged += self.on_custom
+            if self.box_w is not None:
+                self.box_w.SelectionChanged += self.on_box
+                self.box_h.SelectionChanged += self.on_box
             self.FindName('ok_btn').Click += self.on_ok
             self.select_chip(0)
             self.types.Focus()
@@ -714,11 +767,39 @@ def ask_size_and_type_window(sizes, custom_sizes, entries, last):
                 self.types.Items.Add(n)
             self.types.SelectedItem = keep if keep in names else (last if last in names else (names[0] if names else None))
 
+        def fill_box(self):
+            """Списки ширины и высоты — стандартные размеры проекта для формы выбранной плашки."""
+            if self.box_w is None:
+                return
+            dims = box_dims.get(self.base.get('shape')) or []
+            self.busy = True
+            try:
+                for combo, placeholder in ((self.box_w, CUSTOM_WIDTH), (self.box_h, CUSTOM_HEIGHT)):
+                    combo.Items.Clear()
+                    combo.Items.Add(placeholder)
+                    for d in dims:
+                        combo.Items.Add(hvac_sizes.dim_label(d))
+                    combo.SelectedIndex = 0
+                    combo.IsEnabled = bool(dims)
+            finally:
+                self.busy = False
+
+        def reset_box(self):
+            if self.box_w is None:
+                return
+            self.busy = True
+            try:
+                self.box_w.SelectedIndex = 0
+                self.box_h.SelectedIndex = 0
+            finally:
+                self.busy = False
+
         def select_chip(self, index):
-            self.size = sizes[index]
+            self.base = self.size = sizes[index]
             for i, chip in enumerate(self.chips):
                 chip.IsChecked = (i == index)
             self.custom.SelectedIndex = 0
+            self.fill_box()
             self.refill_types()
 
         def on_chip0(self, sender, args):
@@ -734,6 +815,26 @@ def ask_size_and_type_window(sizes, custom_sizes, entries, last):
             self.size = custom_sizes[index - 1]
             for chip in self.chips:
                 chip.IsChecked = False
+            self.reset_box()
+            self.refill_types()
+
+        def on_box(self, sender, args):
+            """Выбрана ширина и/или высота из списков проекта: размер = форма плашки с этими ширина × высота
+            (то, что не выбрано, остаётся как у плашки)."""
+            if self.busy:
+                return
+            shape = self.base.get('shape')
+            if shape not in ('rect', 'oval'):
+                return
+            dims = box_dims.get(shape) or []
+            wi, hi = self.box_w.SelectedIndex, self.box_h.SelectedIndex
+            picked = (wi is not None and wi > 0) or (hi is not None and hi > 0)
+            w = dims[wi - 1] if (wi is not None and 0 < wi <= len(dims)) else self.base['w']
+            h = dims[hi - 1] if (hi is not None and 0 < hi <= len(dims)) else self.base['h']
+            self.size = hvac_sizes.box_size(shape, w, h) if picked else self.base
+            for i, chip in enumerate(self.chips):
+                chip.IsChecked = (not picked) and sizes[i] is self.base
+            self.custom.SelectedIndex = 0
             self.refill_types()
 
         def on_ok(self, sender, args):
@@ -803,10 +904,17 @@ def choose_options(s0, s1, entries, state):
     sizes = [s0, s1]
     shapes = [x.get('shape') for x in sizes]
     custom = hvac_sizes.dedupe_sizes(sizes + standard_sizes('round' if 'round' in shapes else None))[2:]
-    hvac_log.log(TOOL, u'розміри різні: {0} / {1}; власних розмірів у списку: {2}'.format(
-        hvac_sizes.label(s0), hvac_sizes.label(s1), len(custom)))
+    box_dims = {}
+    for box_shape in ('rect', 'oval'):
+        if box_shape in shapes:
+            dims = standard_box_dims(box_shape)
+            if dims:
+                box_dims[box_shape] = dims
+    hvac_log.log(TOOL, u'размеры разные: {0} / {1}; своих диаметров в списке: {2}; ширин/высот: {3}'.format(
+        hvac_sizes.label(s0), hvac_sizes.label(s1), len(custom),
+        u', '.join(u'{0}={1}'.format(k, len(v)) for k, v in sorted(box_dims.items())) or u'нет'))
     try:
-        result = ask_size_and_type_window(sizes, custom, entry_pairs, last)
+        result = ask_size_and_type_window(sizes, custom, entry_pairs, last, box_dims)
     except Exception:
         hvac_log.log_exception(TOOL, u'вікно розміру й типу не вдалося, беру стандартні списки')
         result = ask_size_and_type_dialogs(sizes, custom, entry_pairs, last)

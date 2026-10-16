@@ -31,6 +31,11 @@ def _fmt(value_mm):
     return text[:-2] if text.endswith('.0') else text
 
 
+def dim_label(feet):
+    """Подпись одного размера (ширина или высота) в миллиметрах: «300»."""
+    return _fmt(mm(feet))
+
+
 def label(size):
     """Короткий підпис: «Ø200», «400×200», «овал 400×200»; невідомий переріз — «?»."""
     shape = size.get('shape')

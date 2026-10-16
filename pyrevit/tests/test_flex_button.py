@@ -348,7 +348,14 @@ def run_button(world, answers=None, loop=False, path=None):
                 raise RuntimeError('налаштування розмірів недоступні')
             sizes = [types.SimpleNamespace(NominalDiameter=x / 304.8, UsedInSizeLists=ok)
                      for x, ok in answers.get('_standard_sizes', [])]
-            return [types.SimpleNamespace(Key='rect-shape', Value=[]), types.SimpleNamespace(Key='round-shape', Value=sizes)]
+            box = answers.get('_box_sizes', {})
+
+            def box_entries(shape):              # (ширина, высота, «используется в списках»), мм
+                return [types.SimpleNamespace(NominalWidth=x / 304.8, NominalHeight=y / 304.8, UsedInSizeLists=ok)
+                        for x, y, ok in box.get(shape, [])]
+            return [types.SimpleNamespace(Key='rect-shape', Value=box_entries('rect')),
+                    types.SimpleNamespace(Key='oval-shape', Value=box_entries('oval')),
+                    types.SimpleNamespace(Key='round-shape', Value=sizes)]
 
     DB.Mechanical = types.SimpleNamespace(FlexDuct=FlexDuct, FlexDuctType=FlexDuctType,
                                           MechanicalSystemType=MechanicalSystemType, DuctSizeSettings=DuctSizeSettings,
@@ -510,16 +517,25 @@ def run_button(world, answers=None, loop=False, path=None):
             if 'chip0' in c:                                  # вікно розміру й типу (розміри різні)
                 world.log.append(('buildwin', [c['chip0'].Content, c['chip1'].Content], list(c['custom_size'].Items),
                                   c['custom_size'].IsEnabled))
+                if 'custom_w' in c:                               # рядок «ширина / высота» (прямоугольные, овальные)
+                    world.log.append(('boxwin', list(c['custom_w'].Items), list(c['custom_h'].Items),
+                                      c['custom_w'].IsEnabled))
                 reply = answers.get('_build', {})
                 if reply is None:
                     return                                    # закрито без вибору
                 if 'custom' in reply:
                     c['custom_size'].SelectedIndex = reply['custom']
+                if 'width' in reply:
+                    c['custom_w'].SelectedIndex = reply['width']
+                if 'height' in reply:
+                    c['custom_h'].SelectedIndex = reply['height']
                 if 'chip' in reply:
                     c['chip%d' % reply['chip']].Click.fire()
                 world.build_state = types.SimpleNamespace(
                     types=list(c['types'].Items), type=c['types'].SelectedItem,
-                    chips=[c['chip0'].IsChecked, c['chip1'].IsChecked], custom_index=c['custom_size'].SelectedIndex)
+                    chips=[c['chip0'].IsChecked, c['chip1'].IsChecked], custom_index=c['custom_size'].SelectedIndex,
+                    box_index=((c['custom_w'].SelectedIndex, c['custom_h'].SelectedIndex) if 'custom_w' in c else None),
+                    box_enabled=(c['custom_w'].IsEnabled if 'custom_w' in c else None))
                 if 'type' in reply:
                     c['types'].SelectedItem = reply['type']
                 c['ok_btn'].Click.fire()
@@ -880,7 +896,7 @@ class FlexButtonTests(unittest.TestCase):
         self._go(w)
         win = [l for l in w.log if l[0] == 'buildwin'][0]
         self.assertEqual(win[1], [u'1-й: Ø200', u'2-й: Ø160'])
-        self.assertIn(u'розміри різні: Ø200 / Ø160', self._log_text())
+        self.assertIn(u'размеры разные: Ø200 / Ø160', self._log_text())
 
     def test_default_chip_is_first_connector_size(self):
         w = scenario()
@@ -930,6 +946,81 @@ class FlexButtonTests(unittest.TestCase):
         f = self._go(w, {'_sizes_crash': True})
         self.assertIsNotNone(f)
         self.assertIn(u'налаштування розмірів недоступні', self._log_text())
+
+    # ---------- прямоугольные и овальные: стандартные размеры проекта (ширина и высота) ----------
+
+    BOX_SIZES = [(200, 100, True), (300, 150, True), (400, 200, True), (500, 500, False)]
+
+    def test_rect_standard_sizes_offer_width_and_height_lists(self):
+        w = scenario()
+        self._rect(w, 'a', 400, 200)
+        self._rect(w, 'b', 300, 150)
+        f = self._go(w, {'_box_sizes': {'rect': self.BOX_SIZES}, '_build': {'width': 4}})
+        win = [l for l in w.log if l[0] == 'boxwin'][0]
+        dims = [u'100', u'150', u'200', u'300', u'400']                      # объединение ширин и высот, без «не для списков»
+        self.assertEqual((win[1], win[2], win[3]), ([u'Ширина…'] + dims, [u'Высота…'] + dims, True))
+        self.assertAlmostEqual(f.params['w'].value, 300 / 304.8, places=6)   # выбрана ширина 300
+        self.assertAlmostEqual(f.params['h'].value, 200 / 304.8, places=6)   # высота осталась как у плашки
+        self.assertEqual(w.build_state.chips, [False, False])
+
+    def test_rect_width_and_height_both_chosen(self):
+        w = scenario()
+        self._rect(w, 'a', 400, 200)
+        self._rect(w, 'b', 300, 150)
+        f = self._go(w, {'_box_sizes': {'rect': self.BOX_SIZES}, '_build': {'width': 2, 'height': 5}})
+        self.assertAlmostEqual(f.params['w'].value, 150 / 304.8, places=6)
+        self.assertAlmostEqual(f.params['h'].value, 400 / 304.8, places=6)
+
+    def test_rect_without_standard_sizes_has_no_width_height_row(self):
+        w = scenario()
+        self._rect(w, 'a', 400, 200)
+        self._rect(w, 'b', 300, 150)
+        f = self._go(w)
+        self.assertEqual([l for l in w.log if l[0] == 'boxwin'], [])
+        self.assertAlmostEqual(f.params['w'].value, 400 / 304.8, places=6)
+
+    def test_oval_uses_its_own_standard_sizes(self):
+        w = scenario()
+        self._rect(w, 'a', 300, 150, shape='oval')
+        self._rect(w, 'b', 200, 100, shape='oval')
+        f = self._go(w, {'_box_sizes': {'oval': [(250, 250, True)], 'rect': [(999, 999, True)]},
+                         '_build': {'height': 1}})
+        win = [l for l in w.log if l[0] == 'boxwin'][0]
+        self.assertEqual((win[1], win[2]), ([u'Ширина…', u'250'], [u'Высота…', u'250']))
+        self.assertAlmostEqual(f.params['w'].value, 300 / 304.8, places=6)
+        self.assertAlmostEqual(f.params['h'].value, 250 / 304.8, places=6)
+        self.assertIn(u'овал 300×250', self._log_text())
+
+    def test_choosing_chip_resets_width_and_height(self):
+        w = scenario()
+        self._rect(w, 'a', 400, 200)
+        self._rect(w, 'b', 300, 150)
+        f = self._go(w, {'_box_sizes': {'rect': self.BOX_SIZES}, '_build': {'width': 2, 'height': 2, 'chip': 1}})
+        self.assertEqual((w.build_state.box_index, w.build_state.chips), ((0, 0), [False, True]))
+        self.assertAlmostEqual(f.params['w'].value, 300 / 304.8, places=6)
+        self.assertAlmostEqual(f.params['h'].value, 150 / 304.8, places=6)
+
+    def test_width_height_lists_follow_the_chosen_chip_shape(self):
+        w = scenario()
+        w.flex_types = [FlexTypeEl('Flex Round', 1, shape='round'), FlexTypeEl('Flex Rect', 2, shape='rect')]
+        self._dia(w, 'a', 200)
+        self._rect(w, 'b', 400, 200)
+        self._go(w, {'_box_sizes': {'rect': self.BOX_SIZES}})
+        self.assertFalse([l for l in w.log if l[0] == 'boxwin'][0][3])        # первая плашка круглая — списки выключены
+        w2 = scenario()
+        w2.flex_types = list(w.flex_types)
+        self._dia(w2, 'a', 200)
+        self._rect(w2, 'b', 400, 200)
+        self._go(w2, {'_box_sizes': {'rect': self.BOX_SIZES}, '_build': {'chip': 1}})
+        self.assertTrue(w2.build_state.box_enabled)                            # вторая прямоугольная — включены
+
+    def test_width_height_list_failure_is_not_critical(self):
+        w = scenario()
+        self._rect(w, 'a', 400, 200)
+        self._rect(w, 'b', 300, 150)
+        f = self._go(w, {'_sizes_crash': True})
+        self.assertIsNotNone(f)
+        self.assertEqual([l for l in w.log if l[0] == 'boxwin'], [])
 
     def test_closing_size_window_cancels_without_building(self):
         w = scenario()
