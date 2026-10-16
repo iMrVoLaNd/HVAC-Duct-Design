@@ -47,6 +47,10 @@ class SizesTests(unittest.TestCase):
         self.assertEqual(hs.types_for_shape(entries, None), ['A', 'B', 'C'])
         self.assertEqual(hs.types_for_shape([('A', 'round')], 'rect'), [])
 
+    def test_dim_label_in_millimetres(self):
+        self.assertEqual(hs.dim_label(300 * FT), u'300')
+        self.assertEqual(hs.dim_label(62.5 * FT), u'62.5')
+
     def test_dedupe_keeps_order(self):
         a, b = hs.round_size(200 * FT), hs.round_size(160 * FT)
         self.assertEqual(hs.dedupe_sizes([a, b, hs.round_size(200.1 * FT), b]), [a, b])

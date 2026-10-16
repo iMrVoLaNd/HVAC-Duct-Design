@@ -7,7 +7,7 @@
 
 FT_TO_MM = 304.8
 TOLERANCE_MM = 0.5          # різниця менша за пів міліметра — розміри однакові
-SHAPE_NAMES = {'round': u'круглий', 'rect': u'прямокутний', 'oval': u'овальний'}
+SHAPE_NAMES = {'round': u'круглый', 'rect': u'прямоугольный', 'oval': u'овальный'}
 
 
 def round_size(diameter):
@@ -29,6 +29,11 @@ def mm(feet):
 def _fmt(value_mm):
     text = '{0:.1f}'.format(value_mm)
     return text[:-2] if text.endswith('.0') else text
+
+
+def dim_label(feet):
+    """Подпись одного размера (ширина или высота) в миллиметрах: «300»."""
+    return _fmt(mm(feet))
 
 
 def label(size):

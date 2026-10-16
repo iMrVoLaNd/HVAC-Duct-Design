@@ -17,16 +17,20 @@ try:
     import hvac_log
 except ImportError:
     from pyrevit import forms
-    forms.alert(u'Не знайдено файл lib\\hvac_log.py.\nСкопіюйте в розширення ВСЮ папку HVAC.extension разом із lib '
-                u'(усі файли) і перезавантажте pyRevit.\n\nШукав тут: {0}'.format(_LIB),
+    forms.alert(u'Не найден файл lib\\hvac_log.py.\nСкопируйте в расширение ВСЮ папку HVAC.extension вместе с lib '
+                u'(все файлы) и перезагрузите pyRevit.\n\nИскал здесь: {0}'.format(_LIB),
                 title=u'HVAC', exitscript=True)
 TOOL = 'QuickFlexConnect_config'
+hvac_log.configure(os.path.dirname(os.path.abspath(__file__)), 'QuickFlexConnect')       # журнал — в папке этой кнопки
 
 try:
     from pyrevit import revit, DB, script
 
+    import hvac_dialog
     import hvac_flex_settings
     import hvac_revit
+    import hvac_settings
+    import hvac_ui
 except Exception:
     hvac_log.log_exception(TOOL, u'імпорт модулів')
     raise
@@ -43,29 +47,26 @@ class _LazyForms(object):
 
 
 forms = _LazyForms()
-CONFIG_SECTION = hvac_flex_settings.SECTION
-TITLE = u'QuickFlexConnect — налаштування'
-NO_CHANGE = u'(не змінювати параметр)'      # пункт списку: значення порожнє — параметр не чіпати
+hvac_dialog.configure(forms=forms, log_path=hvac_log.log_path, strings=hvac_dialog.RU)       # окна сообщений — в общем стиле
+CONFIG_SECTION = hvac_flex_settings.SECTION      # старая секция pyRevit: из неё один раз переносим настройки в settings.ini
+PLUGIN_DIR = os.path.dirname(os.path.abspath(__file__))
+LEGACY_KEYS = ('config_value', 'config_value_num', 'config_value_ctx', 'loop', 'type_from_model', 'flex_type', 'system_type')
+TITLE = u'QuickFlexConnect — настройки'
+NO_CHANGE = u'(не менять параметр)'      # пункт списку: значення порожнє — параметр не чіпати
 
 
-XAML = u"""
-<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="QuickFlexConnect — налаштування" Width="440" SizeToContent="Height"
-        WindowStartupLocation="CenterScreen" ResizeMode="NoResize" ShowInTaskbar="False">
-  <StackPanel Margin="16">
-    <TextBlock Text="Параметр «Гибкая конфигурация» (RBS_FLEX_PATTERN_PARAM) — значення:" Margin="0,0,0,4"/>
-    <TextBlock Text="(можна лише обрати зі списку)" Margin="0,0,0,4" Opacity="0.6"/>
-    <ComboBox x:Name="param_value" IsEditable="False" Margin="0,0,0,14"/>
-    <CheckBox x:Name="pick_type" Content="Тип гнучкого — з повітровода в моделі: клацнути на нього замість вибору зі списку" Margin="0,0,0,8"/>
-    <CheckBox x:Name="loop" Content="Цикл: будувати пари поспіль, поки не натиснуто Esc" Margin="0,0,0,16"/>
-    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-      <Button x:Name="save_btn" Content="Зберегти" Width="100" Margin="0,0,8,0" IsDefault="True"/>
-      <Button x:Name="cancel_btn" Content="Скасувати" Width="100" IsCancel="True"/>
-    </StackPanel>
-  </StackPanel>
-</Window>
-"""
+def settings_xaml():
+    """XAML окна настроек в общем виде кнопок HVAC (hvac_ui)."""
+    body = u'\n'.join((
+        hvac_ui.label(u'Параметр гибкого воздуховода «Гибкая конфигурация»:'),
+        u'      <TextBlock Style="{StaticResource Muted}" Text="(можно только выбрать из списка)" Margin="0,0,0,6"/>',
+        u'      <ComboBox x:Name="param_value" IsEditable="False" Margin="0,0,0,14"/>',
+        u'      <CheckBox x:Name="pick_type" Content="Тип с образца" Margin="0,0,0,8"',
+        u'                ToolTip="Вместо выбора типа из списка: клик по гибкому воздуховоду в модели, тип берётся с него"/>',
+        u'      <CheckBox x:Name="loop" Content="Цикл" Margin="0,0,0,16"',
+        u'                ToolTip="Строить пары подряд, пока не нажат Esc"/>',
+        hvac_ui.buttons(u'save_btn', u'Сохранить')))
+    return hvac_ui.window_xaml(TITLE, 460, body)
 
 
 def read_options():
@@ -78,14 +79,14 @@ def read_options():
                                           hvac_flex_settings.FALLBACK_PARAM_NAME)
                 if p is None or p.StorageType != DB.StorageType.Integer:
                     continue
-                t = DB.Transaction(doc, u'Варіанти параметра (відкат)')
+                t = DB.Transaction(doc, u'Варианты параметра (откат)')
                 t.Start()
                 try:
                     options = hvac_revit.enum_options(p, refresh=doc.Regenerate)
                 finally:
                     t.RollBack()
                 hvac_log.log(TOOL, u'варіанти параметра: {0}'.format(
-                    u'; '.join(u'{0}={1}'.format(n, text) for n, text in options) or u'(не знайдено)'))
+                    u'; '.join(u'{0}={1}'.format(n, text) for n, text in options) or u'(не найдено)'))
                 return options
     except Exception:
         hvac_log.log_exception(TOOL, u'читання варіантів параметра (не критично)')
@@ -118,7 +119,8 @@ def ask_with_window(value, loop, options, pick_type):
 
     class SettingsWindow(forms.WPFWindow):
         def __init__(self):
-            forms.WPFWindow.__init__(self, XAML, literal_string=True)
+            forms.WPFWindow.__init__(self, settings_xaml(), literal_string=True)
+            hvac_ui.enable_drag(self)
             self.result = None
             combo = self.FindName('param_value')
             items = choices_for(value, options)
@@ -145,19 +147,19 @@ def ask_with_dialogs(value, loop, options, pick_type):
     items = choices_for(value, options)
     current = selected_for(value, items)
     ordered = [current] + [i for i in items if i != current]
-    picked = forms.SelectFromList.show(ordered, title=u'«Гибкая конфигурация» (зараз: «{0}»)'.format(current),
-                                       button_name=u'Далі', multiselect=False)
+    picked = forms.SelectFromList.show(ordered, title=u'«Гибкая конфигурация» (сейчас: «{0}»)'.format(current),
+                                       button_name=u'Далее', multiselect=False)
     if not picked:
         return None
-    loop_on = forms.alert(u'Режим «Цикл» (пари поспіль, поки не натиснуто Esc).\nЗараз: {0}.\n\nУвімкнути?'
-                          .format(u'увімкнено' if loop else u'вимкнено'), title=TITLE, yes=True, no=True)
-    from_model = forms.alert(u'Тип гнучкого повітровода брати з гнучкого повітровода в моделі (клік) замість списку?\n'
-                             u'Зараз: {0}.'.format(u'так' if pick_type else u'ні'), title=TITLE, yes=True, no=True)
+    loop_on = forms.alert(u'Режим «Цикл» (пары подряд, пока не нажат Esc).\nСейчас: {0}.\n\nВключить?'
+                          .format(u'включён' if loop else u'выключен'), title=TITLE, yes=True, no=True)
+    from_model = forms.alert(u'Брать тип гибкого воздуховода с гибкого воздуховода в модели (клик) вместо списка?\n'
+                             u'Сейчас: {0}.'.format(u'да' if pick_type else u'нет'), title=TITLE, yes=True, no=True)
     return (u'' if picked == NO_CHANGE else picked), bool(loop_on), bool(from_model)
 
 
 def main():
-    cfg = script.get_config(CONFIG_SECTION)
+    cfg = hvac_settings.load(PLUGIN_DIR, legacy=lambda: script.get_config(CONFIG_SECTION), legacy_keys=LEGACY_KEYS)
     value = hvac_flex_settings.get_config_value(cfg)
     loop = hvac_flex_settings.is_loop(cfg)
     pick_type = hvac_flex_settings.is_type_from_model(cfg)
@@ -176,7 +178,8 @@ def main():
     hvac_flex_settings.set_config_value(cfg, result[0], number, hvac_revit.app_context(doc))
     hvac_flex_settings.set_loop(cfg, result[1])
     hvac_flex_settings.set_type_from_model(cfg, result[2])
-    script.save_config()
+    if not cfg.save():
+        hvac_dialog.error(heading=u'Не удалось записать файл настроек', body=cfg.path, log=True, title=TITLE)
     hvac_log.log(TOOL, u'збережено: «Гибкая конфигурация» = «{0}» (число {1}), цикл {2}, тип з моделі {3}'.format(
         result[0], number, result[1], result[2]))
 

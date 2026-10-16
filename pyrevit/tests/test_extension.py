@@ -21,10 +21,11 @@ import unittest
 HERE = os.path.dirname(os.path.abspath(__file__))
 EXT = os.path.join(HERE, '..', 'HVAC.extension')
 LIB = os.path.join(EXT, 'lib')
-SCRIPT = os.path.join(EXT, 'HVAC.tab', 'Systems.panel', 'SystemsTemplate.pushbutton', 'script.py')
+SCRIPT = os.path.join(EXT, 'HVAC.tab', 'Systems.panel', '103_SystemsTemplate.pushbutton', 'script.py')
 os.environ['HVAC_LOG_DIR'] = tempfile.mkdtemp()      # журнал тестів — не в реальний %APPDATA%
 sys.path.insert(0, LIB)
 
+import hvac_dialog  # noqa: E402
 import hvac_palette  # noqa: E402
 
 
@@ -273,7 +274,8 @@ def run_button(doc, answers, view_type='FloorPlan', apply_template=True, existin
             raise AssertionError('нема відповіді для: ' + message)
 
     forms = types.SimpleNamespace(
-        ask_for_string=lambda default=None, prompt=None, title=None: answers.get('name', default),
+        ask_for_string=lambda default=None, prompt=None, title=None: (
+            answers['name'].pop(0) if isinstance(answers.get('name'), list) else answers.get('name', default)),
         CommandSwitchWindow=Switch, alert=alert)
 
     def script_exit():
@@ -303,9 +305,22 @@ def run_button(doc, answers, view_type='FloorPlan', apply_template=True, existin
     saved = dict((k, sys.modules.get(k)) for k in ('pyrevit', 'System', 'System.Collections', 'System.Collections.Generic'))
     sys.modules.update({'pyrevit': pyrevit, 'System': sysmod, 'System.Collections': coll,
                         'System.Collections.Generic': gen})
+    real_show = hvac_dialog.show
+
+    def fake_show(msg):
+        """Окна сообщений вместо WPF: звіт (рядки тіла) — у lines, текст — у alerts, відповіді як раніше у forms.alert."""
+        text = hvac_dialog.plain_text(msg)
+        alerts.append(text)
+        if msg.confirm:
+            lines.extend(msg.body.split(u'\n'))
+            return existing_template_reuse if u'вже існує' in text else apply_template
+        return True
+
+    hvac_dialog.show = fake_show
     try:
         runpy.run_path(SCRIPT, run_name='__main__')
     finally:
+        hvac_dialog.show = real_show
         for k, v in saved.items():
             if v is None:
                 sys.modules.pop(k, None)
@@ -409,6 +424,24 @@ class ButtonTests(unittest.TestCase):
         self.assertEqual(len(d.templates), 2)
         self.assertEqual(d.templates[1].Name, u'ОВ_Тест_2')
         self.assertEqual(len(d.filters), 40)           # фільтри ті самі, нові не плодяться
+
+    def test_template_name_with_forbidden_characters_is_asked_again(self):
+        d = FakeDoc()
+        answers = dict(ANSWERS, name=[u'ОВ:Тест?', u'  ', u'ОВ  Тест'])
+        _doc, _lines, alerts = run_button(d, answers)
+        self.assertEqual(len([a for a in alerts if u'не можна' in a]), 1)
+        self.assertIn(u': ?', alerts[0])
+        self.assertEqual(len([a for a in alerts if u'Введіть' in a]), 1)
+        self.assertEqual(d.templates[0].Name, u'ОВ Тест')                      # лишние пробелы сжаты
+
+    def test_too_long_template_name_is_asked_again(self):
+        d = FakeDoc()
+        run_button(d, dict(ANSWERS, name=[u'А' * 101, u'Короткое']))
+        self.assertEqual(d.templates[0].Name, u'Короткое')
+
+    def test_closing_name_dialog_exits(self):
+        with self.assertRaises(ExitScript):
+            run_button(FakeDoc(), dict(ANSWERS, name=[None]))
 
     def test_schedule_view_is_rejected(self):
         with self.assertRaises(ExitScript):

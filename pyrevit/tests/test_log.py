@@ -21,6 +21,7 @@ def read(path):
 
 class LogTests(unittest.TestCase):
     def setUp(self):
+        hvac_log.configure(None, None)               # другие тесты запускают кнопки, которые настраивают журнал
         self.old = os.environ.get('HVAC_LOG_DIR')
         self.dir = tempfile.mkdtemp()
         os.environ['HVAC_LOG_DIR'] = self.dir
@@ -46,6 +47,50 @@ class LogTests(unittest.TestCase):
             f.write(u'x')
         os.environ['HVAC_LOG_DIR'] = os.path.join(blocker, 'sub')      # папку створити неможливо
         hvac_log.log('t', u'не впаде')
+
+    def test_each_plugin_has_its_own_log_file_in_its_folder(self):
+        os.environ.pop('HVAC_LOG_DIR', None)
+        folder_a, folder_b = tempfile.mkdtemp(), tempfile.mkdtemp()
+        try:
+            hvac_log.configure(folder_a, 'PluginA')
+            hvac_log.log('PluginA', u'строка А')
+            hvac_log.configure(folder_b, 'PluginB')
+            hvac_log.log('PluginB', u'строка Б')
+            self.assertEqual(hvac_log.log_path(), os.path.join(folder_b, 'PluginB.log'))
+            self.assertIn(u'строка А', read(os.path.join(folder_a, 'PluginA.log')))
+            self.assertNotIn(u'строка Б', read(os.path.join(folder_a, 'PluginA.log')))
+            self.assertIn(u'строка Б', read(os.path.join(folder_b, 'PluginB.log')))
+        finally:
+            hvac_log.configure(None, None)
+
+    def test_env_dir_wins_over_plugin_folder(self):
+        hvac_log.configure(tempfile.mkdtemp(), 'PluginA')
+        try:
+            self.assertEqual(hvac_log.log_path(), os.path.join(self.dir, 'PluginA.log'))
+        finally:
+            hvac_log.configure(None, None)
+
+    def test_unwritable_plugin_folder_falls_back_to_default_dir(self):
+        os.environ.pop('HVAC_LOG_DIR', None)
+        blocker = os.path.join(self.dir, 'file')
+        with io.open(blocker, 'w') as f:
+            f.write(u'x')
+        fallback = tempfile.mkdtemp()
+        old_appdata = os.environ.get('APPDATA')
+        os.environ['APPDATA'] = fallback
+        hvac_log.configure(os.path.join(blocker, 'sub'), 'PluginA')       # в папку кнопки писать нельзя
+        try:
+            hvac_log.log('PluginA', u'запасной путь')
+        finally:
+            hvac_log.configure(None, None)
+            if old_appdata is None:
+                os.environ.pop('APPDATA', None)
+            else:
+                os.environ['APPDATA'] = old_appdata
+        self.assertIn(u'запасной путь', read(os.path.join(fallback, 'HVAC-Duct-Design', 'PluginA.log')))
+
+    def test_default_name_without_configure(self):
+        self.assertEqual(os.path.basename(hvac_log.log_path()), 'hvac-tools.log')
 
     def test_rotation_when_file_too_big(self):
         path = hvac_log.log_path()
@@ -103,9 +148,9 @@ class LogTests(unittest.TestCase):
                 sys.modules.pop('pyrevit', None)
             else:
                 sys.modules['pyrevit'] = saved
-        self.assertTrue(any('видно-у-вікні' in m for m in out))
-        self.assertTrue(any(hvac_log.log_path() in m for m in out))
-        self.assertEqual(len(alerts), 1)
+        self.assertEqual(out, [])                                      # окно вывода pyRevit не используется
+        self.assertEqual(len(alerts), 1)                               # в тесте нет WPF — показан запасной диалог
+        self.assertIn('видно-у-вікні', alerts[0])
         self.assertIn(hvac_log.log_path(), alerts[0])
 
     def test_log_start_reads_revit_version_if_available(self):

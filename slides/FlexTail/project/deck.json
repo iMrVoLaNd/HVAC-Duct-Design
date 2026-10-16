@@ -1,0 +1,46 @@
+{
+  "v": 4,
+  "createdOnFiles": {
+    "v": 1,
+    "at": "2026-10-16T12:30:00Z"
+  },
+  "lists": "css",
+  "title": "FlexTail",
+  "order": [
+    "cover",
+    "what",
+    "categories",
+    "direction",
+    "window",
+    "settings",
+    "cut",
+    "short",
+    "messages",
+    "flow"
+  ],
+  "sections": {
+    "s1": {
+      "description": "Название и суть плагина",
+      "start": "cover"
+    },
+    "s2": {
+      "description": "С какими элементами работает и куда преобразует",
+      "start": "categories"
+    },
+    "s3": {
+      "description": "Окна, разрез и граничные случаи",
+      "start": "window"
+    },
+    "s4": {
+      "description": "Рабочий процесс целиком",
+      "start": "flow"
+    }
+  },
+  "faces": {
+    "ibm-plex-sans": {
+      "family": "IBM Plex Sans",
+      "href": "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700&display=swap"
+    }
+  },
+  "designSystems": []
+}

@@ -1,0 +1,57 @@
+<section id="short" data-transition="fade" style="background:#F3F0E8;color:#14213D;font-family:'IBM Plex Sans', Arial, sans-serif;padding:128px 128px 160px;display:flex;flex-direction:column;gap:40px">
+<h2 style="font-size:72px;font-weight:700;line-height:1.1">Больше воздуховода — подставим максимум</h2>
+<div style="display:flex;gap:48px;align-items:flex-start">
+<div style="width:900px;display:flex;flex-direction:column;gap:20px;background:#14213D;color:#EAF0F8;border-radius:20px;padding:28px">
+<p style="font-size:28px;font-weight:700;color:#F2A93B">Ввели 500 мм, воздуховод — 300 мм</p>
+<svg aria-label="До: жёсткий воздуховод 300 мм между оборудованием и тройником. После: весь воздуховод стал гибким" width="844" height="260" viewBox="0 0 844 260">
+<defs>
+<linearGradient id="s1d" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#9AD6F4"/><stop offset="0.45" stop-color="#5BB6E8"/><stop offset="1" stop-color="#2B6F99"/></linearGradient>
+<linearGradient id="s1e" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4C9BC9"/><stop offset="1" stop-color="#25607F"/></linearGradient>
+</defs>
+<rect x="10" y="10" width="110" height="100" rx="8" fill="url(#s1e)"/>
+<rect x="120" y="45" width="40" height="30" fill="#7FBFE3"/>
+<rect x="150" y="40" width="470" height="40" fill="url(#s1d)"/>
+<rect x="144" y="40" width="6" height="40" fill="#2B6F99"/>
+<rect x="620" y="10" width="70" height="100" rx="8" fill="url(#s1e)"/>
+<line x1="4" y1="60" x2="700" y2="60" stroke="#EAF0F8" stroke-width="2" stroke-dasharray="18 5 3 5" opacity="0.8"/>
+<path d="M150 118 V134 M620 118 V134 M150 126 H620" fill="none" stroke="#EAF0F8" stroke-width="3"/>
+<rect x="10" y="150" width="110" height="100" rx="8" fill="url(#s1e)"/>
+<rect x="620" y="150" width="70" height="100" rx="8" fill="url(#s1e)"/>
+<path d="M120 200 H620" fill="none" stroke="#D98E1F" stroke-width="40"/>
+<path d="M120 200 H620" fill="none" stroke="#FFD58F" stroke-width="16" opacity="0.45"/>
+<path d="M120 200 H620" fill="none" stroke="#6B3F08" stroke-width="40" stroke-dasharray="4 9" opacity="0.55"/>
+<ellipse cx="120" cy="200" rx="5" ry="20" fill="none" stroke="#5FCF9A" stroke-width="3"/>
+<ellipse cx="620" cy="200" rx="5" ry="20" fill="none" stroke="#5FCF9A" stroke-width="3"/>
+<line x1="4" y1="200" x2="700" y2="200" stroke="#EAF0F8" stroke-width="2" stroke-dasharray="18 5 3 5" opacity="0.8"/>
+</svg>
+<p style="font-size:26px;line-height:1.4;color:#C9D6E8">Воздуховод станет гибким целиком. Подставленная длина не запоминается как «последняя».</p>
+</div>
+<div style="flex:1;display:flex;flex-direction:column;background:#FBFAF6;border:2px solid #14213D;border-radius:14px;overflow:hidden;box-shadow:0 12px 32px rgba(20,33,61,0.25)">
+<p style="font-size:26px;font-weight:600;background:#14213D;color:#EAF0F8;padding:12px 20px">FlexTail</p>
+<div style="display:flex;flex-direction:column;gap:20px;padding:24px">
+<p style="font-size:26px;line-height:1.4">Максимально возможная длина — 300 мм (длина найденного воздуховода).</p>
+<p style="font-size:26px;line-height:1.4">Подставлена максимальная длина.</p>
+<div style="display:flex;justify-content:flex-end">
+<p style="font-size:26px;font-weight:600;color:#EAF0F8;background:#14213D;padding:10px 32px;border-radius:8px">OK</p>
+</div>
+</div>
+</div>
+</div>
+<div style="display:flex;gap:24px">
+<div style="flex:1;background:#FBFAF6;border:1px solid #DDD8CB;border-radius:20px;padding:14px 28px">
+<h3 style="font-size:32px;font-weight:600;line-height:1.2">Ровно столько же</h3>
+<p style="font-size:26px;line-height:1.4;color:#3A4660">Длина совпала с точностью до миллиметра — преобразуется целиком, без сообщения.</p>
+</div>
+<div style="flex:1;background:#FBFAF6;border:1px solid #DDD8CB;border-radius:20px;padding:14px 28px">
+<h3 style="font-size:32px;font-weight:600;line-height:1.2">Остаток слишком мал</h3>
+<p style="font-size:26px;line-height:1.4;color:#3A4660">Если после разреза остался бы жёсткий кусок короче 1/10 дюйма, преобразуется целиком, с сообщением.</p>
+</div>
+<div style="flex:1;background:#FBFAF6;border:1px solid #DDD8CB;border-radius:20px;padding:14px 28px">
+<h3 style="font-size:32px;font-weight:600;line-height:1.2">На другом конце пусто</h3>
+<p style="font-size:26px;line-height:1.4;color:#3A4660">Если за дальним концом воздуховода нет элемента, он всё равно преобразуется; подключается только сторона элемента.</p>
+</div>
+</div>
+<p style="position:absolute;left:128px;bottom:64px;width:900px;font-size:24px;color:#5B6677">FlexTail · Revit 2026</p>
+<p style="position:absolute;left:1192px;bottom:64px;width:600px;font-size:24px;color:#5B6677;text-align:right">08</p>
+<aside>Граничные случаи длины. Если введена длина больше длины найденного воздуховода, окно сообщает максимально возможную длину, подставляет её в поле и остаётся открытым; после подтверждения воздуховод преобразуется целиком. Подставленная длина не запоминается как последняя. Дальше за фасонную деталь плагин не идёт.</aside>
+</section>
