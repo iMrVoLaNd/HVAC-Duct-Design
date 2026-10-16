@@ -66,7 +66,7 @@ def settings_xaml():
         u'      <TextBlock Style="{StaticResource Muted}" Text="(можно только выбрать из списка)" Margin="0,0,0,6"/>',
         u'      <ComboBox x:Name="param_value" IsEditable="False" Margin="0,0,0,14"/>',
         hvac_ui.label(u'Длина гибкого участка по умолчанию, мм:'),
-        u'      <TextBox x:Name="default_length" Margin="0,0,0,14"/>',
+        hvac_ui.text_field(u'default_length', u'0,0,0,14'),
         u'      <CheckBox x:Name="remember" Content="Запоминать последнюю введённую длину" Margin="0,0,0,16"',
         u'                ToolTip="Включено: в окне подставляется последняя длина. Выключено: всегда длина по умолчанию."/>',
         hvac_ui.buttons(u'save_btn', u'Сохранить')))
@@ -131,6 +131,7 @@ def ask_with_window(value, default_length, remember, options):
             for item in items:
                 combo.Items.Add(item)
             combo.SelectedItem = selected_for(value, items)
+            hvac_ui.setup_number_field(self, 'default_length')            # только число; есть кнопка «×»
             self.FindName('default_length').Text = hvac_tail.format_mm(default_length)
             self.FindName('remember').IsChecked = bool(remember)
             self.FindName('save_btn').Click += self.on_save

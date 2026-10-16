@@ -27,6 +27,7 @@ TITLE_NAME = u'title_text'
 TITLE_BAR_NAME = u'title_bar'
 INFO_TITLE_NAME = u'info_title'
 INFO_NAME = u'info'
+INDENT = u'\u00a0\u00a0\u00a0\u00a0'      # отступ строки-продолжения в блоке данных (неразрывные пробелы)
 
 _RESOURCES = u'''
     <Style TargetType="Button">
@@ -72,6 +73,33 @@ _RESOURCES = u'''
               <Trigger Property="IsMouseOver" Value="True">
                 <Setter TargetName="bd" Property="Background" Value="@AMBER_SOFT@"/>
                 <Setter TargetName="bd" Property="BorderBrush" Value="@NAVY@"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Opacity" Value="0.4"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+    <Style x:Key="Clear" TargetType="Button">
+      <Setter Property="Foreground" Value="@MUTED@"/>
+      <Setter Property="Width" Value="24"/>
+      <Setter Property="Height" Value="24"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Focusable" Value="False"/>
+      <Setter Property="ToolTip" Value="Очистить поле"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="bd" Background="Transparent" CornerRadius="12">
+              <TextBlock Text="×" FontSize="18" FontWeight="Bold" Foreground="{TemplateBinding Foreground}"
+                         HorizontalAlignment="Center" VerticalAlignment="Center" Margin="0,-3,0,0"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="bd" Property="Background" Value="@SAND_LINE@"/>
+                <Setter Property="Foreground" Value="@NAVY@"/>
               </Trigger>
             </ControlTemplate.Triggers>
           </ControlTemplate>
@@ -250,6 +278,20 @@ def label(text, margin=u'0,0,0,4'):
     return u'      <TextBlock Style="{StaticResource Label}" Text="%s" Margin="%s"/>' % (escape(text), margin)
 
 
+def text_field(name, margin=u'0,0,0,8'):
+    """Поле ввода с кнопкой «×» внутри справа (очистить). Кнопка называется <name>_clear."""
+    return (u'      <Grid Margin="%s">\n'
+            u'        <TextBox x:Name="%s" Padding="8,5,34,5"/>\n'
+            u'        <Button x:Name="%s_clear" Style="{StaticResource Clear}" HorizontalAlignment="Right"\n'
+            u'                Margin="0,0,6,0"/>\n'
+            u'      </Grid>' % (margin, name, name))
+
+
+def note(name, margin=u'0,0,0,12'):
+    """Поясняющий приглушённый текст под полем (его меняют в коде: set_text(window, name, text))."""
+    return u'      <TextBlock x:Name="%s" Style="{StaticResource Muted}" Margin="%s"/>' % (name, margin)
+
+
 def buttons(ok_name, ok_text, cancel_name=u'cancel_btn', cancel_text=u'Отмена'):
     """Ряд кнопок справа: основная (по Enter, залита тёмно-синим) и «Отмена» (по Esc)."""
     return (u'      <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">\n'
@@ -271,6 +313,77 @@ def enable_drag(window):
         return True
     except Exception:
         return False
+
+
+def sanitize_number(text, int_digits=5, decimals=1):
+    """Оставить в тексте только то, что может быть числом: цифры и один разделитель (запятая или точка);
+    не больше int_digits цифр до разделителя и decimals после. Пробелы, буквы («мм»), минус и прочее убираются."""
+    out = []
+    sep = False
+    n_int = n_dec = 0
+    for ch in text:
+        if u'0' <= ch <= u'9':
+            if not sep:
+                if n_int >= int_digits:
+                    continue
+                n_int += 1
+            else:
+                if n_dec >= decimals:
+                    continue
+                n_dec += 1
+            out.append(ch)
+        elif ch in u',.' and not sep and decimals > 0:
+            sep = True
+            out.append(ch)
+    return u''.join(out)
+
+
+def setup_number_field(window, name, int_digits=5, decimals=1):
+    """Числовое поле: нельзя ввести и вставить ничего, кроме числа (всё лишнее сразу стирается), и есть кнопка
+    очистки <name>_clear. Вызывать ДО того, как в поле записано значение. Возвращает поле или None."""
+    try:
+        box = window.FindName(name)
+        box.MaxLength = int_digits + decimals + 2
+    except Exception:
+        return None
+    busy = [False]
+
+    def on_changed(sender, args):
+        if busy[0]:
+            return
+        text = box.Text or u''
+        cleaned = sanitize_number(text, int_digits, decimals)
+        if cleaned != text:
+            busy[0] = True
+            try:
+                caret = box.CaretIndex - (len(text) - len(cleaned))
+                box.Text = cleaned
+                box.CaretIndex = max(0, min(len(cleaned), caret))
+            except Exception:
+                pass
+            finally:
+                busy[0] = False
+
+    def on_clear(sender, args):
+        box.Text = u''
+        try:
+            box.Focus()
+        except Exception:
+            pass
+
+    try:
+        box.TextChanged += on_changed
+        window.FindName(name + u'_clear').Click += on_clear
+    except Exception:
+        pass
+    return box
+
+
+def set_text(window, name, text):
+    try:
+        window.FindName(name).Text = text
+    except Exception:
+        pass
 
 
 def set_title(window, text):

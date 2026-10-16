@@ -48,6 +48,28 @@ def parse_length_mm(text):
     return value
 
 
+MAX_EPS_MM = 0.05          # в окне длина показывается с точностью 0,1 мм: разницу меньше 0,05 мм считаем равенством
+
+
+def fit_length(mm, max_mm):
+    """Вписать введённую длину в длину найденного воздуховода max_mm (None — без ограничения).
+
+    Возвращает (длина, подставлена_ли_максимальная): длиннее максимума — берём максимум и сообщаем об этом (True);
+    равна максимуму с точностью до MAX_EPS_MM — берём максимум точно (воздуховод преобразуется целиком, без замечаний)."""
+    if max_mm is None:
+        return mm, False
+    if mm > max_mm + MAX_EPS_MM:
+        return max_mm, True
+    if abs(mm - max_mm) <= MAX_EPS_MM:
+        return max_mm, False
+    return mm, False
+
+
+def too_long_text(max_mm):
+    return (u'Максимально возможная длина — {0} мм (длина найденного воздуховода).\n'
+            u'Подставлена максимальная длина.'.format(format_mm(max_mm)))
+
+
 def _read_length(cfg, key):
     try:
         return parse_length_mm(cfg.get_option(key, u''))
@@ -105,6 +127,24 @@ def plan_tail(length_ft, duct_ft, min_ft=MIN_LEN_FT):
     if duct_ft - length_ft < min_ft:
         return {'mode': 'whole', 'distance': duct_ft, 'note': 'leftover'}
     return {'mode': 'split', 'distance': length_ft, 'note': None}
+
+
+def preview_text(size_text, length_mm, duct_mm=None):
+    """Что получится: «Будет создан гибкий воздуховод Ø200 мм длиной 500 мм. Останется воздуховод длиной 1500 мм.»
+    length_mm None — длина не введена (подсказка)."""
+    if length_mm is None:
+        return u'Введите длину числом, мм (от {0} до {1}).'.format(format_mm(MIN_LENGTH_MM), format_mm(MAX_LENGTH_MM))
+    made = length_mm
+    tail = u''
+    if duct_mm is not None:
+        plan = plan_tail(mm_to_ft(length_mm), mm_to_ft(duct_mm))
+        if plan['mode'] == 'whole':
+            made = duct_mm
+            tail = u' Воздуховод преобразуется целиком.'
+        else:
+            tail = u' Останется воздуховод длиной {0} мм.'.format(format_mm(duct_mm - length_mm))
+    size = (size_text + u' ') if size_text else u''
+    return u'Будет создан гибкий воздуховод {0}длиной {1} мм.{2}'.format(size, format_mm(made), tail)
 
 
 def note_text(note, length_mm, duct_mm):

@@ -20,6 +20,24 @@ def build(body=u'', with_info=False, title=u'Окно'):
     return ui.window_xaml(title, 420, u'\n'.join(parts))
 
 
+class SanitizeTests(unittest.TestCase):
+    def test_keeps_only_number(self):
+        cases = ((u'750', u'750'), (u'750,5', u'750,5'), (u'750.5', u'750.5'), (u'abc', u''), (u'750 мм', u'750'),
+                 (u'1 250,5 мм', u'1250,5'), (u'-5', u'5'), (u'+5', u'5'), (u'1,2,3', u'1,2'), (u'1.2,3', u'1.2'),
+                 (u'12.55', u'12.5'), (u'123456', u'12345'), (u'', u''), (u'²', u''), (u'٣', u''), (u',5', u',5'),
+                 (u'1e5', u'15'), (u'5\n', u'5'))
+        for typed, shown in cases:
+            self.assertEqual(ui.sanitize_number(typed), shown, typed)
+
+    def test_integer_only(self):
+        self.assertEqual(ui.sanitize_number(u'12,5', 4, 0), u'125')
+
+    def test_idempotent(self):
+        for text in (u'12ab,5,6', u'9999999', u'- 1'):
+            once = ui.sanitize_number(text)
+            self.assertEqual(ui.sanitize_number(once), once)
+
+
 class XamlTests(unittest.TestCase):
     def parse(self, text):
         return xml.dom.minidom.parseString(text.encode('utf-8'))

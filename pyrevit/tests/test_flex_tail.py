@@ -24,6 +24,7 @@ if LIB not in sys.path:
     sys.path.insert(0, LIB)
 import hvac_log
 import hvac_settings
+import hvac_ui
 
 MM = 1.0 / 304.8             # миллиметр в футах
 
@@ -431,9 +432,28 @@ def run_button(world, answers=None, path=None):
             self.append(x)
 
     class Text(object):
-        Text = u''
+        """TextBox/TextBlock: запись в Text вызывает TextChanged, как в WPF."""
+        def __init__(self):
+            self._text = u''
+            self.TextChanged = Event()
+            self.MaxLength = 0
+            self.CaretIndex = 0
+            self.focused = 0
+
+        @property
+        def Text(self):
+            return self._text
+
+        @Text.setter
+        def Text(self, value):
+            changed = value != self._text
+            self._text = value
+            self.CaretIndex = len(value)
+            if changed:
+                self.TextChanged.fire()
 
         def Focus(self):
+            self.focused += 1
             return True
 
         def SelectAll(self):
@@ -456,7 +476,7 @@ def run_button(world, answers=None, path=None):
                 raise RuntimeError('XAML не разобран')
             self.ctl = {}
             for name in re.findall(r'x:Name="(\w+)"', xaml):
-                self.ctl[name] = (Text() if name in ('info', 'info_title', 'title_text', 'length', 'default_length') else
+                self.ctl[name] = (Text() if name in ('info', 'info_title', 'title_text', 'length', 'default_length', 'result_text') else
                                   Combo() if name in ('types', 'param_value') else
                                   Check() if name == 'remember' else Chip())
             if 'param_value' in self.ctl:
@@ -496,7 +516,7 @@ def run_button(world, answers=None, path=None):
                 return
             world.log.append(('tailwin', c['info_title'].Text, c['info'].Text, c['length'].Text,
                               [c['chip%d' % i].Content for i in range(6)], list(c['types'].Items),
-                              c['types'].SelectedItem))
+                              c['types'].SelectedItem, c['result_text'].Text))
             replies = answers.get('_window', [{}])
             for reply in replies:
                 if reply is None:
@@ -779,15 +799,14 @@ class FlexTailTests(unittest.TestCase):
     def test_shorter_duct_is_converted_whole_and_user_is_told(self):
         w = scene(300)
         click(w)
-        self.go(w)                                                           # по умолчанию 500 мм
+        self.go(w)                                                           # по умолчанию 500 мм, воздуховод — 300
         f = w.created[0]
         self.assertEqual(f.created_with['points'], [(0, 0, 0), (round(300 * MM, 6), 0, 0)])
         self.assertEqual(w.deleted, [2])
         self.assertFalse(getattr(w, 'broken', False))                        # разреза не было
-        self.assertEqual(len(w.alerts), 1)
-        self.assertIn(u'300', w.alerts[0])
-        self.assertIn(u'500', w.alerts[0])
-        self.assertIn(u'целиком', w.alerts[0])
+        win = [l for l in w.log if l[0] == 'tailwin'][0]
+        self.assertEqual(win[3], u'300')                                     # окно сразу показало максимум
+        self.assertEqual(w.alerts, [])                                       # а значит, сообщение после не нужно
 
     def test_whole_conversion_reconnects_the_far_neighbour(self):
         w = scene(300)
@@ -811,14 +830,14 @@ class FlexTailTests(unittest.TestCase):
         w = scene(1260, radius_mm=62.5)
         w.free_far_end()
         click(w)
-        self.go(w, {'_window': [{'length': '1500'}]})
+        self.go(w, {'_window': [{'length': '1500'}, {}]})                  # первый OK: подставлен максимум, второй — подтверждение
         self.assertEqual(len(w.created), 1)
         self.assertEqual(w.tx, ['start', 'commit'])
         self.assertEqual(w.deleted, [2])
         near_end, far_end = w.created[0].conns()
         self.assertEqual((near_end.refs, far_end.refs), ([w.ce], []))
         self.assertEqual(w.created[0].created_with['points'][1], (round(1260 * MM, 6), 0, 0))
-        self.assertTrue(any(u'1260' in a and u'1500' in a for a in w.alerts))      # сообщение про короткий участок
+        self.assertTrue(any(u'1260' in a and u'Максимально' in a for a in w.alerts))      # сообщение про максимум
 
     def test_free_far_end_on_split_also_works(self):
         w = scene(3000)
@@ -940,6 +959,150 @@ class FlexTailTests(unittest.TestCase):
                 os.environ.pop(hvac_settings.ENV_DIR, None)
             else:
                 os.environ[hvac_settings.ENV_DIR] = old_env
+
+    def window_of(self, w):
+        return [l[1] for l in w.log if l[0] == 'drag'][0]
+
+    def test_too_long_length_is_replaced_with_max_and_message_and_not_remembered(self):
+        w = scene(2000)
+        click(w)
+        answers = self.go(w, {'_window': [{'length': '3500'}, {}], '_config': {'flex_tail': {'length_mm': u'700'}}})
+        self.assertEqual(len(w.alerts), 1)
+        self.assertIn(u'Максимально возможная длина — 2000 мм', w.alerts[0])
+        win = self.window_of(w)
+        self.assertEqual(win.ctl['length'].Text, u'2000')                        # подставлено в поле
+        self.assertEqual(w.created[0].created_with['points'][1], (round(2000 * MM, 6), 0, 0))
+        self.assertEqual(answers['_config']['flex_tail']['length_mm'], u'700')    # «последней» стала не подставленная
+        self.assertIn(u'не запоминается', self.log_text())
+
+    def test_window_stays_open_after_substitution_until_second_ok(self):
+        w = scene(2000)
+        click(w)
+        with self.assertRaises(ExitScript):
+            self.go(w, {'_window': [{'length': '2500'}, None]})                      # второй раз окно закрыли
+        self.assertEqual(w.created, [])
+        self.assertEqual(len(w.alerts), 1)
+
+    def test_editing_after_substitution_is_remembered_again(self):
+        w = scene(2000)
+        click(w)
+        answers = self.go(w, {'_window': [{'length': '3500'}, {'length': '800'}]})
+        self.assertEqual(answers['_config']['flex_tail']['length_mm'], u'800')
+
+    def test_chip_after_substitution_is_remembered(self):
+        w = scene(2000)
+        click(w)
+        answers = self.go(w, {'_window': [{'length': '3500'}, {'chip': 4}]})      # чип «2000» — это выбор пользователя
+        self.assertEqual(answers['_config']['flex_tail']['length_mm'], u'2000')
+
+    def test_remembered_length_longer_than_duct_starts_as_max_without_message(self):
+        w = scene(1000)
+        click(w)
+        answers = self.go(w, {'_config': {'flex_tail': {'length_mm': u'1500'}}})
+        self.assertEqual(self.window_of(w).ctl['length'].Text, u'1000')
+        self.assertEqual(w.alerts, [])
+        self.assertEqual(answers['_config']['flex_tail']['length_mm'], u'1500')    # подставленное не затёрло прежнее
+
+    def test_exact_max_is_remembered_and_converts_whole_without_note(self):
+        w = scene(2000)
+        click(w)
+        answers = self.go(w, {'_window': [{'length': '2000'}]})
+        self.assertEqual(w.alerts, [])
+        self.assertEqual(answers['_config']['flex_tail']['length_mm'], u'2000')
+        self.assertEqual(w.deleted, [2])
+
+    def test_chips_longer_than_duct_are_disabled(self):
+        w = scene(1200)
+        click(w)
+        self.go(w)
+        c = self.window_of(w).ctl
+        self.assertEqual([c['chip%d' % i].IsEnabled for i in range(6)], [True, True, True, False, False, False])
+
+    def test_all_chips_enabled_for_long_duct(self):
+        w = scene(3000)
+        click(w)
+        self.go(w)
+        c = self.window_of(w).ctl
+        self.assertTrue(all(c['chip%d' % i].IsEnabled for i in range(6)))
+
+    def test_preview_says_what_will_be_created(self):
+        w = scene(2000)
+        click(w)
+        self.go(w)
+        text = [l for l in w.log if l[0] == 'tailwin'][0][7]
+        self.assertEqual(text, u'Будет создан гибкий воздуховод Ø200 мм длиной 500 мм. Останется воздуховод длиной 1500 мм.')
+
+    def test_preview_follows_typing_and_chips_and_clamps(self):
+        w = scene(2000)
+        click(w)
+        with self.assertRaises(ExitScript):
+            self.go(w, {'_window': [None]})
+        c = self.window_of(w).ctl
+        c['length'].Text = u'750'
+        self.assertIn(u'длиной 750 мм', c['result_text'].Text)
+        c['chip4'].Click.fire()                                                   # 2000 = весь воздуховод
+        self.assertIn(u'длиной 2000 мм. Воздуховод преобразуется целиком', c['result_text'].Text)
+        c['length'].Text = u'9000'
+        self.assertIn(u'длиной 2000 мм', c['result_text'].Text)                   # больше максимума — покажет максимум
+        c['length'].Text = u''
+        self.assertIn(u'Введите длину', c['result_text'].Text)
+
+    # ---------- ввод: нельзя ввести лишнее, есть кнопка очистки ----------
+
+    def test_length_field_accepts_only_numbers(self):
+        w = scene(3000)
+        click(w)
+        with self.assertRaises(ExitScript):
+            self.go(w, {'_window': [None]})
+        c = self.window_of(w).ctl
+        for typed, shown in ((u'abc12,3,4мм', u'12,3'), (u'-750', u'750'), (u'1 250', u'1250'), (u'12.55', u'12.5'),
+                             (u'123456', u'12345'), (u'7,5,5', u'7,5'), (u'   ', u''), (u'²³', u'')):
+            c['length'].Text = typed
+            self.assertEqual(c['length'].Text, shown, typed)
+
+    def test_length_field_has_max_length_and_clear_button(self):
+        w = scene(3000)
+        click(w)
+        with self.assertRaises(ExitScript):
+            self.go(w, {'_window': [None]})
+        c = self.window_of(w).ctl
+        self.assertGreater(c['length'].MaxLength, 0)
+        c['length'].Text = u'750'
+        c['length_clear'].Click.fire()
+        self.assertEqual(c['length'].Text, u'')
+        self.assertEqual(c['length'].focused, 2)                                   # при показе окна и после очистки
+        self.assertIn(u'Введите длину', c['result_text'].Text)
+
+    def test_empty_field_gives_message_and_keeps_window_open(self):
+        w = scene(3000)
+        click(w)
+        self.go(w, {'_window': [{'length': u''}, {'length': u'600'}]})
+        self.assertEqual(len([a for a in w.alerts if u'число' in a]), 1)
+        self.assertEqual(w.created[0].created_with['points'][1], (round(600 * MM, 6), 0, 0))
+
+    def test_zero_and_too_small_length_is_rejected(self):
+        w = scene(3000)
+        click(w)
+        self.go(w, {'_window': [{'length': u'0'}, {'length': u'2'}, {'length': u'0,5'}, {'length': u'5'}]})
+        self.assertEqual(len([a for a in w.alerts if u'число' in a]), 3)
+        self.assertEqual(w.created[0].created_with['points'][1], (round(5 * MM, 6), 0, 0))
+
+    def test_xaml_has_clear_button_and_note_with_expected_names(self):
+        text = hvac_ui.window_xaml(u'T', 400, hvac_ui.text_field(u'f') + hvac_ui.note(u'n'))
+        for part in (u'x:Name="f"', u'x:Name="f_clear"', u'x:Name="n"', u'x:Key="Clear"'):
+            self.assertIn(part, text)
+
+    def test_dialogs_fallback_also_limits_length_and_does_not_remember_substituted(self):
+        w = scene(2000)
+        click(w)
+        answers = self.go(w, {'_no_wpf': True, '_ask_values': [u'3000', u'2000'],
+                              '_config': {'flex_tail': {'length_mm': u'700'}}})
+        self.assertEqual(len(w.alerts), 1)
+        self.assertIn(u'Максимально возможная длина — 2000 мм', w.alerts[0])
+        asks = [l for l in w.log if l[0] == 'ask']
+        self.assertEqual(asks[1][2], u'2000')                                       # в повторном вопросе уже максимум
+        self.assertEqual(answers['_config']['flex_tail']['length_mm'], u'700')
+        self.assertEqual(w.created[0].created_with['points'][1], (round(2000 * MM, 6), 0, 0))
 
     def test_last_type_is_preselected_and_remembered(self):
         w = scene(3000)
@@ -1299,9 +1462,20 @@ class FlexTailConfigTests(unittest.TestCase):
         self.assertEqual([l for l in w.log if l[0] == 'settingswin'][0][2], u'Гибкий')
 
     def test_invalid_default_length_keeps_window_open_with_message(self):
-        w, answers = self.go(None, {'_form': [{'length': 'abc'}, {'length': '-5'}, {'length': u'900 мм'}]})
+        w, answers = self.go(None, {'_form': [{'length': 'abc'}, {'length': '0'}, {'length': u'900 мм'}]})
         self.assertEqual(len([a for a in w.alerts if u'число' in a]), 2)
         self.assertEqual(answers['_config']['flex_tail']['default_length_mm'], u'900')
+
+    def test_default_length_field_accepts_only_numbers_and_clears(self):
+        w = scene(2000)
+        with self.assertRaises(ExitScript):
+            self.go(w, {'_form': [None]})
+        c = [l[1] for l in w.log if l[0] == 'drag'][0].ctl
+        c['default_length'].Text = u'abc 90,5 мм'
+        self.assertEqual(c['default_length'].Text, u'90,5')
+        self.assertGreater(c['default_length'].MaxLength, 0)
+        c['default_length_clear'].Click.fire()
+        self.assertEqual(c['default_length'].Text, u'')
 
     def test_closing_window_changes_nothing(self):
         w = scene(2000)

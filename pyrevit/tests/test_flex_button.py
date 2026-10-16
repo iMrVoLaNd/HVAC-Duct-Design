@@ -28,6 +28,7 @@ if LIB not in sys.path:
 import hvac_flex_settings
 import hvac_log
 import hvac_settings
+import hvac_ui
 
 
 class XYZ(object):
@@ -1019,19 +1020,25 @@ class FlexButtonTests(unittest.TestCase):
         info = self._infos(w)[0]
         self.assertEqual(info[1], u'Выбранные элементы')
         lines = info[2].split(u'\n')
-        self.assertEqual(len(lines), 2)                                       # размеры разные — строки про гибкий нет
-        self.assertTrue(lines[0].startswith(u'1. OST_DuctAccessory · «Тип-1» · Ø200 мм'), lines[0])
-        self.assertTrue(lines[1].startswith(u'2. OST_DuctCurves · «Тип-2» · Ø160 мм'), lines[1])
+        self.assertEqual(len(lines), 6)
+        self.assertEqual(lines[0], u'1. OST_DuctAccessory · Ø200 мм')                 # категория и сечение — одной строкой
+        self.assertEqual(lines[1], hvac_ui.INDENT + u'«Тип-1»')                         # длинное имя типа — отдельной строкой
+        self.assertEqual(lines[2], u'2. OST_DuctCurves · Ø160 мм')
+        self.assertEqual(lines[3], hvac_ui.INDENT + u'«Тип-2»')
+        self.assertEqual(lines[4], u'Будет создан гибкий воздуховод')
+        self.assertTrue(lines[5].startswith(hvac_ui.INDENT + u'длиной около '), lines[5])       # размеры разные
+        self.assertTrue(lines[5].endswith(u' мм, размер — по вашему выбору'), lines[5])
 
     def test_type_window_for_equal_sizes_also_shows_elements_and_flex_size(self):
         w = scenario()
         self._go(w, {u'Тип гибкого': 'Flex Alu'})
         info = self._infos(w)[0]
         lines = info[2].split(u'\n')
-        self.assertEqual(len(lines), 3)
+        self.assertEqual(len(lines), 6)
         self.assertIn(u'Ø', lines[0])
-        self.assertTrue(lines[2].startswith(u'Размер гибкого воздуховода: Ø'), lines[2])
-        self.assertTrue(lines[2].endswith(u' мм'))
+        self.assertEqual(lines[4], u'Будет создан гибкий воздуховод')
+        self.assertRegex(lines[5], u'^' + hvac_ui.INDENT + u'Ø[\\d.]+ мм, длиной около \\d+ мм$')
+        self.assertNotIn(u'Размер гибкого воздуховода', info[2])
 
     def test_rect_sizes_in_info_have_units(self):
         w = scenario()

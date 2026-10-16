@@ -413,10 +413,11 @@ def tail_xaml():
     body = u'\n'.join((
         hvac_ui.info_block(),
         hvac_ui.label(u'Длина гибкого участка, мм:'),
-        u'      <TextBox x:Name="length" Margin="0,0,0,8"/>',
+        hvac_ui.text_field(u'length'),
         u'      <WrapPanel Margin="0,0,0,8">',
         chips,
         u'      </WrapPanel>',
+        hvac_ui.note(u'result_text', u'0,0,0,12'),
         hvac_ui.label(u'Тип гибкого воздуховода:'),
         u'      <ComboBox x:Name="types" Margin="0,0,0,14"/>',
         hvac_ui.buttons(u'ok_btn', u'OK')))
@@ -427,9 +428,11 @@ BAD_LENGTH = u'Введите длину в миллиметрах: число �
     hvac_tail.format_mm(hvac_tail.MIN_LENGTH_MM), hvac_tail.format_mm(hvac_tail.MAX_LENGTH_MM))
 
 
-def ask_length_and_type_window(names, last_type, last_length, info):
+def ask_length_and_type_window(names, last_type, last_length, info, max_mm=None, size_label=u''):
     """Окно: найденный воздуховод (info = (заголовок, текст)), длина (поле + быстрые значения) и тип.
-    Возвращает (длина мм, имя типа) или None, если окно закрыто."""
+    max_mm — длина найденного воздуховода: больше неё ввести нельзя (подставляется максимум, с сообщением).
+    Возвращает (длина мм, имя типа, запоминать_длину) или None, если окно закрыто. Подставленный максимум
+    запоминать не нужно: иначе он стал бы «последней длиной»."""
 
     class TailWindow(forms.WPFWindow):
         def __init__(self):
@@ -437,13 +440,18 @@ def ask_length_and_type_window(names, last_type, last_length, info):
             hvac_ui.enable_drag(self)
             self.result = None
             hvac_ui.fill_info(self, info[0], info[1])
-            self.length = self.FindName('length')
-            self.length.Text = hvac_tail.format_mm(last_length)
+            self.length = hvac_ui.setup_number_field(self, 'length')
+            start, self.auto = hvac_tail.fit_length(last_length, max_mm)      # прошлая длина больше воздуховода — берём максимум
+            self.auto_text = hvac_tail.format_mm(start) if self.auto else None      # подставлено нами, а не введено пользователем
+            self.length.Text = hvac_tail.format_mm(start)
+            self.length.TextChanged += self.on_text
             self.types = self.FindName('types')
             for i, mm in enumerate(hvac_tail.CHIPS_MM):
                 chip = self.FindName('chip%d' % i)
                 chip.Content = hvac_tail.format_mm(mm)
                 chip.Click += self.chip_handler(mm)
+                chip.IsEnabled = max_mm is None or mm <= max_mm + hvac_tail.MAX_EPS_MM      # длиннее воздуховода — недоступно
+            self.refresh()
             for n in names:
                 self.types.Items.Add(n)
             self.types.SelectedItem = last_type if last_type in names else names[0]
@@ -454,9 +462,23 @@ def ask_length_and_type_window(names, last_type, last_length, info):
             except Exception:
                 pass
 
+        def refresh(self):
+            """Строка под чипами: что именно будет создано при текущей длине."""
+            mm = hvac_tail.parse_length_mm(self.length.Text)
+            if mm is not None:
+                mm = hvac_tail.fit_length(mm, max_mm)[0]
+            hvac_ui.set_text(self, 'result_text', hvac_tail.preview_text(size_label, mm, max_mm))
+
+        def on_text(self, sender, args):
+            if self.length.Text != self.auto_text:
+                self.auto = False                          # пользователь изменил поле сам
+            self.refresh()
+
         def chip_handler(self, mm):
             def handler(sender, args):
                 self.length.Text = hvac_tail.format_mm(mm)
+                self.auto = False
+                self.refresh()
             return handler
 
         def on_ok(self, sender, args):
@@ -464,9 +486,16 @@ def ask_length_and_type_window(names, last_type, last_length, info):
             if mm is None:
                 forms.alert(BAD_LENGTH, title=u'FlexTail')
                 return                                     # окно остаётся открытым
+            mm, too_long = hvac_tail.fit_length(mm, max_mm)
+            if too_long:
+                self.auto_text = hvac_tail.format_mm(mm)
+                self.length.Text = self.auto_text
+                self.auto = True
+                forms.alert(hvac_tail.too_long_text(mm), title=u'FlexTail')
+                return                                     # окно остаётся открытым: пользователь видит подставленное
             chosen = self.types.SelectedItem
             if chosen is not None:
-                self.result = (mm, chosen)
+                self.result = (mm, chosen, not self.auto)
                 self.Close()
 
     win = TailWindow()
@@ -474,22 +503,33 @@ def ask_length_and_type_window(names, last_type, last_length, info):
     return win.result
 
 
-def ask_length_and_type_dialogs(names, last_type, last_length, info):
-    """Запасной вариант на стандартных диалогах pyRevit: длина, затем тип."""
+def ask_length_and_type_dialogs(names, last_type, last_length, info, max_mm=None, size_label=u''):
+    """Запасной вариант на стандартных диалогах pyRevit: длина, затем тип. Возвращает то же, что окно."""
+    default, auto = hvac_tail.fit_length(last_length, max_mm)
+    auto_text = hvac_tail.format_mm(default) if auto else None
     while True:
-        text = forms.ask_for_string(default=hvac_tail.format_mm(last_length),
+        text = forms.ask_for_string(default=hvac_tail.format_mm(default),
                                     prompt=u'{0}\n{1}\nДлина гибкого участка, мм:'.format(info[0], info[1]),
                                     title=u'FlexTail')
         if text is None:
             return None
+        if text.strip() != (auto_text or u''):
+            auto = False
         mm = hvac_tail.parse_length_mm(text)
-        if mm is not None:
-            break
-        forms.alert(BAD_LENGTH, title=u'FlexTail')
+        if mm is None:
+            forms.alert(BAD_LENGTH, title=u'FlexTail')
+            continue
+        mm, too_long = hvac_tail.fit_length(mm, max_mm)
+        if too_long:
+            forms.alert(hvac_tail.too_long_text(mm), title=u'FlexTail')
+            default, auto = mm, True
+            auto_text = hvac_tail.format_mm(mm)
+            continue
+        break
     ordered = [last_type] + [n for n in names if n != last_type] if last_type in names else list(names)
     name = ordered[0] if len(ordered) == 1 else forms.SelectFromList.show(
         ordered, title=u'Тип гибкого воздуховода', button_name=u'Выбрать', multiselect=False)
-    return (mm, name) if name else None
+    return (mm, name, not auto) if name else None
 
 
 # ---------- параметр «Гибкая конфигурация» ----------
@@ -710,21 +750,22 @@ def main():
         forms.alert(u'Нет типов гибкого воздуховода для формы «{0}».'.format(
             hvac_sizes.SHAPE_NAMES.get(size.get('shape'), u'?')), title=u'FlexTail')
         return
+    size_text = hvac_ui.size_text(hvac_sizes.label(size), size.get('shape') is not None)
     info = (u'Найден элемент категории «{0}»'.format(category_name(duct)),
-            u'Тип: {0}\nСечение: {1}\nДлина: {2} мм'.format(
-                type_label(duct), hvac_ui.size_text(hvac_sizes.label(size), size.get('shape') is not None),
-                hvac_tail.format_mm(duct_mm)))
+            u'Тип: {0}\nСечение: {1}\nДлина: {2} мм'.format(type_label(duct), size_text, hvac_tail.format_mm(duct_mm)))
     try:
-        result = ask_length_and_type_window(sorted(names), last_type, start_length, info)
+        result = ask_length_and_type_window(sorted(names), last_type, start_length, info, duct_mm, size_text)
     except Exception:
         hvac_log.log_exception(TOOL, u'окно длины и типа не удалось, беру стандартные диалоги')
-        result = ask_length_and_type_dialogs(sorted(names), last_type, start_length, info)
+        result = ask_length_and_type_dialogs(sorted(names), last_type, start_length, info, duct_mm, size_text)
     if result is None:
         script.exit()
-    length_mm, chosen = result
-    hvac_tail.set_last_length(cfg, length_mm)
+    length_mm, chosen, remember = result
+    if remember:
+        hvac_tail.set_last_length(cfg, length_mm)                 # подставленный максимум «последней длиной» не становится
     save_last('flex_type', chosen)
-    hvac_log.log(TOOL, u'выбрано: длина {0} мм, тип «{1}»'.format(hvac_tail.format_mm(length_mm), chosen))
+    hvac_log.log(TOOL, u'выбрано: длина {0} мм, тип «{1}»{2}'.format(
+        hvac_tail.format_mm(length_mm), chosen, u'' if remember else u' (подставлен максимум, не запоминается)'))
 
     plan = hvac_tail.plan_tail(hvac_tail.mm_to_ft(length_mm), duct_ft)
     try:

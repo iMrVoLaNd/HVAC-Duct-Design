@@ -106,6 +106,45 @@ class SettingsTests(unittest.TestCase):
         self.assertEqual((ht.start_length(Boom()), ht.is_remember(Boom())), (500, True))
 
 
+class FitTests(unittest.TestCase):
+    def test_no_limit(self):
+        self.assertEqual(ht.fit_length(9000, None), (9000, False))
+
+    def test_longer_than_max_gives_max_and_flag(self):
+        self.assertEqual(ht.fit_length(2500, 2000), (2000, True))
+        self.assertEqual(ht.fit_length(2000.2, 2000), (2000, True))
+
+    def test_equal_within_display_precision_gives_exact_max_without_flag(self):
+        self.assertEqual(ht.fit_length(1998.5, 1998.46), (1998.46, False))
+        self.assertEqual(ht.fit_length(2000, 2000), (2000, False))
+
+    def test_shorter_is_unchanged(self):
+        self.assertEqual(ht.fit_length(1500, 2000), (1500, False))
+
+    def test_message_names_max(self):
+        text = ht.too_long_text(1998.46)
+        self.assertIn(u'Максимально возможная длина — 1998.5 мм', text)
+
+
+class PreviewTests(unittest.TestCase):
+    def test_split(self):
+        self.assertEqual(ht.preview_text(u'Ø200 мм', 500, 2000),
+                         u'Будет создан гибкий воздуховод Ø200 мм длиной 500 мм. Останется воздуховод длиной 1500 мм.')
+
+    def test_whole(self):
+        self.assertEqual(ht.preview_text(u'Ø200 мм', 2000, 2000),
+                         u'Будет создан гибкий воздуховод Ø200 мм длиной 2000 мм. Воздуховод преобразуется целиком.')
+
+    def test_tiny_leftover_means_whole(self):
+        self.assertIn(u'целиком', ht.preview_text(u'Ø200 мм', 1999, 2000))
+
+    def test_without_duct_and_size(self):
+        self.assertEqual(ht.preview_text(u'', 500), u'Будет создан гибкий воздуховод длиной 500 мм.')
+
+    def test_no_length_gives_hint(self):
+        self.assertIn(u'Введите длину', ht.preview_text(u'Ø200 мм', None, 2000))
+
+
 class PlanTests(unittest.TestCase):
     def test_longer_duct_is_split_at_requested_length(self):
         p = ht.plan_tail(500 * FT, 2000 * FT)

@@ -171,6 +171,41 @@ def allow_filters_in_template(template):
         pass   # у старих версіях API — нічого страшного, налаштування за замовчуванням
 
 
+FORBIDDEN_NAME_CHARS = u'\\:{}[]|;<>?`~'      # Revit не принимает их в именах (шаблона, фильтра)
+MAX_NAME_LENGTH = 100
+
+
+def bad_name_chars(name):
+    """Символы, которых в названии быть не может (Revit их отвергнет), без повторов, в порядке появления."""
+    found = []
+    for ch in name:
+        if (ch in FORBIDDEN_NAME_CHARS or ord(ch) < 32) and ch not in found:
+            found.append(ch)
+    return found
+
+
+def ask_template_name():
+    """Название шаблона: пустое, с запрещёнными символами или слишком длинное не принимаем — спрашиваем снова.
+    Закрыли диалог — выход."""
+    default = DEFAULT_TEMPLATE_NAME
+    while True:
+        name = forms.ask_for_string(default=default, prompt=u'Назва шаблону виду:', title=u'Шаблон систем')
+        if name is None:
+            script.exit()
+        name = u' '.join(name.split())                       # лишние пробелы и переводы строк
+        bad = bad_name_chars(name)
+        if not name:
+            forms.alert(u'Введіть назву шаблону.', title=u'Шаблон систем')
+        elif bad:
+            forms.alert(u'У назві не можна використовувати: {0}'.format(u' '.join(bad)), title=u'Шаблон систем')
+            default = u''.join(ch for ch in name if ch not in bad)
+        elif len(name) > MAX_NAME_LENGTH:
+            forms.alert(u'Назва задовга: не більше {0} символів.'.format(MAX_NAME_LENGTH), title=u'Шаблон систем')
+            default = name[:MAX_NAME_LENGTH]
+        else:
+            return name
+
+
 def main():
     view = doc.ActiveView
     if not is_graphic_view(view):
@@ -181,11 +216,7 @@ def main():
     param_name = palette['parameter']
 
     # --- діалоги ---
-    name = forms.ask_for_string(default=DEFAULT_TEMPLATE_NAME, prompt=u'Назва шаблону виду:',
-                                title=u'Шаблон систем')
-    if not name:
-        script.exit()
-    name = name.strip()
+    name = ask_template_name()
 
     group_label = ask_choice([g[0] for g in GROUPS], u'Для яких систем створити фільтри?')
     kinds = [g[1] for g in GROUPS if g[0] == group_label][0]

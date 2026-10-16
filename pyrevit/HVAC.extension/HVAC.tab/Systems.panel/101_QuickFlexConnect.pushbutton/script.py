@@ -347,14 +347,19 @@ def size_text(size):
     return hvac_ui.size_text(hvac_sizes.label(size), size.get('shape') is not None)
 
 
-def pair_info(e0, e1, s0, s1):
-    """Блок «выбранные элементы» в окнах выбора: у каждого элемента категория, тип и сечение его коннектора; если
-    размеры одинаковые — ещё и размер будущего гибкого воздуховода. Возвращает (заголовок, текст)."""
+def pair_info(e0, e1, s0, s1, distance_mm=None):
+    """Блок «выбранные элементы» в окнах выбора: у каждого элемента категория и сечение коннектора, ниже — тип;
+    в конце — что именно будет создано (размер и длина гибкого воздуховода). Возвращает (заголовок, текст)."""
     lines = []
     for i, (el, size) in enumerate(((e0, s0), (e1, s1)), 1):
-        lines.append(u'{0}. {1} · «{2}» · {3}'.format(i, category_name(el), type_label(el), size_text(size)))
+        lines.append(u'{0}. {1} · {2}'.format(i, category_name(el), size_text(size)))
+        lines.append(hvac_ui.INDENT + u'«{0}»'.format(type_label(el)))          # длинное имя типа — отдельной строкой
+    lines.append(u'Будет создан гибкий воздуховод')
+    length = u'длиной около {0} мм'.format(u'{0:.0f}'.format(distance_mm)) if distance_mm is not None else u''
     if hvac_sizes.same_size(s0, s1):
-        lines.append(u'Размер гибкого воздуховода: {0}'.format(size_text(s0)))
+        lines.append(hvac_ui.INDENT + u', '.join(x for x in (size_text(s0), length) if x))
+    else:
+        lines.append(hvac_ui.INDENT + u', '.join(x for x in (length, u'размер — по вашему выбору') if x))
     return u'Выбранные элементы', u'\n'.join(lines)
 
 
@@ -393,7 +398,7 @@ def pick_xaml(with_info):
     """XAML компактного окна выбора: один выпадающий список; сверху — блок «выбранные элементы», если он нужен."""
     body = (hvac_ui.info_block() + u'\n' if with_info else u'') + \
         u'      <ComboBox x:Name="choices" Margin="0,0,0,12"/>\n' + hvac_ui.buttons(u'ok_btn', u'OK')
-    return hvac_ui.window_xaml(u'QuickFlexConnect', 380, body)
+    return hvac_ui.window_xaml(u'QuickFlexConnect', 440, body)
 
 
 def pick_in_small_window(names, last, title, info=None):
@@ -728,7 +733,7 @@ def build_xaml(with_box, with_custom=True, with_info=False):
     body = BUILD_BODY.replace(u'<!--INFO-->', hvac_ui.info_block() if with_info else u'')
     body = body.replace(u'<!--CUSTOM_ROW-->', CUSTOM_ROW_XAML if with_custom else u'')
     body = body.replace(u'<!--BOX_ROW-->', BOX_ROW_XAML if with_box else u'')
-    return hvac_ui.window_xaml(u'Размеры элементов разные', 420, body)
+    return hvac_ui.window_xaml(u'Размеры элементов разные', 460, body)
 
 
 def ask_size_and_type_window(sizes, custom_sizes, entries, last, box_dims=None, info=None):
@@ -1058,7 +1063,8 @@ def main():
             pair[0].Origin.X, pair[0].Origin.Y, pair[0].Origin.Z,
             pair[1].Origin.X, pair[1].Origin.Y, pair[1].Origin.Z))
         s0, s1 = connector_size(pair[0]), connector_size(pair[1])
-        system_state['info'] = pair_info(e0, e1, s0, s1)
+        distance_mm = pair[0].Origin.DistanceTo(pair[1].Origin) * 304.8        # по прямой между коннекторами
+        system_state['info'] = pair_info(e0, e1, s0, s1, distance_mm)
         hvac_log.log(TOOL, u'розміри конекторів: {0} / {1}'.format(hvac_sizes.label(s0), hvac_sizes.label(s1)))
         try:
             flex_type, size = choose_options(s0, s1, entries, system_state)
