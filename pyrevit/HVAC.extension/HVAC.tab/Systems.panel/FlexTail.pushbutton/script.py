@@ -38,6 +38,7 @@ try:
     import hvac_revit
     import hvac_sizes
     import hvac_tail
+    import hvac_ui
 except Exception:
     hvac_log.log_exception(TOOL, u'импорт модулей')
     raise
@@ -45,8 +46,7 @@ except Exception:
 doc = revit.doc
 uidoc = revit.uidoc
 
-TAIL_SECTION = 'flex_tail'                      # длина и последний тип этой кнопки
-FLEX_SECTION = hvac_flex_settings.SECTION       # «Гибкая конфигурация» — общая с QuickFlexConnect
+TAIL_SECTION = hvac_tail.SECTION                # все настройки этой кнопки — в её собственной секции (flex_tail)
 BEND_FACTOR = 0.3                               # запасной вариант FlexDuct.Create: «вылет» от конца (доля длины)
 BEND_MIN_FT = 0.3
 
@@ -85,6 +85,14 @@ def eid_int(eid):
 
 def type_name(t):
     return hvac_revit.element_name(DB, t)
+
+
+def type_label(el):
+    """Имя типа элемента («Воздуховод круглый») или «?»."""
+    try:
+        return type_name(doc.GetElement(el.GetTypeId()))
+    except Exception:
+        return u'?'
 
 
 def category_name(el):
@@ -391,45 +399,38 @@ def level_id_for(duct, point):
 
 # ---------- окно: длина и тип ----------
 
-TAIL_XAML = u"""
-<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="FlexTail" Width="420" SizeToContent="Height"
-        WindowStartupLocation="CenterScreen" ResizeMode="NoResize" ShowInTaskbar="False" Topmost="True">
-  <StackPanel Margin="12">
-    <TextBlock x:Name="info" TextWrapping="Wrap" Margin="0,0,0,10" Opacity="0.7"/>
-    <TextBlock Text="Длина гибкого участка, мм:" Margin="0,0,0,4"/>
-    <TextBox x:Name="length" Margin="0,0,0,6"/>
-    <WrapPanel Margin="0,0,0,12">
-      <Button x:Name="chip0" MinWidth="58" Padding="6,4" Margin="0,0,6,6"/>
-      <Button x:Name="chip1" MinWidth="58" Padding="6,4" Margin="0,0,6,6"/>
-      <Button x:Name="chip2" MinWidth="58" Padding="6,4" Margin="0,0,6,6"/>
-      <Button x:Name="chip3" MinWidth="58" Padding="6,4" Margin="0,0,6,6"/>
-      <Button x:Name="chip4" MinWidth="58" Padding="6,4" Margin="0,0,6,6"/>
-      <Button x:Name="chip5" MinWidth="58" Padding="6,4" Margin="0,0,6,6"/>
-    </WrapPanel>
-    <TextBlock Text="Тип гибкого воздуховода:" Margin="0,0,0,4"/>
-    <ComboBox x:Name="types" Margin="0,0,0,12"/>
-    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-      <Button x:Name="ok_btn" Content="OK" Width="80" Margin="0,0,8,0" IsDefault="True"/>
-      <Button x:Name="cancel_btn" Content="Отмена" Width="80" IsCancel="True"/>
-    </StackPanel>
-  </StackPanel>
-</Window>
-"""
+CHIP_STYLE = u'Style="{StaticResource Chip}" MinWidth="58" Margin="0,0,6,6"'
+
+
+def tail_xaml():
+    """XAML окна: найденный воздуховод, длина с быстрыми значениями, тип. Вид общий с другими окнами (hvac_ui)."""
+    chips = u'\n'.join(u'        <Button x:Name="chip%d" %s/>' % (i, CHIP_STYLE) for i in range(len(hvac_tail.CHIPS_MM)))
+    body = u'\n'.join((
+        hvac_ui.info_block(),
+        hvac_ui.label(u'Длина гибкого участка, мм:'),
+        u'      <TextBox x:Name="length" Margin="0,0,0,8"/>',
+        u'      <WrapPanel Margin="0,0,0,8">',
+        chips,
+        u'      </WrapPanel>',
+        hvac_ui.label(u'Тип гибкого воздуховода:'),
+        u'      <ComboBox x:Name="types" Margin="0,0,0,14"/>',
+        hvac_ui.buttons(u'ok_btn', u'OK')))
+    return hvac_ui.window_xaml(u'FlexTail', 440, body)
+
 
 BAD_LENGTH = u'Введите длину в миллиметрах: число от {0} до {1}.'.format(
     hvac_tail.format_mm(hvac_tail.MIN_LENGTH_MM), hvac_tail.format_mm(hvac_tail.MAX_LENGTH_MM))
 
 
-def ask_length_and_type_window(names, last_type, last_length, info_text):
-    """Окно: длина (поле + быстрые значения) и тип. Возвращает (длина мм, имя типа) или None, если окно закрыто."""
+def ask_length_and_type_window(names, last_type, last_length, info):
+    """Окно: найденный воздуховод (info = (заголовок, текст)), длина (поле + быстрые значения) и тип.
+    Возвращает (длина мм, имя типа) или None, если окно закрыто."""
 
     class TailWindow(forms.WPFWindow):
         def __init__(self):
-            forms.WPFWindow.__init__(self, TAIL_XAML, literal_string=True)
+            forms.WPFWindow.__init__(self, tail_xaml(), literal_string=True)
             self.result = None
-            self.FindName('info').Text = info_text
+            hvac_ui.fill_info(self, info[0], info[1])
             self.length = self.FindName('length')
             self.length.Text = hvac_tail.format_mm(last_length)
             self.types = self.FindName('types')
@@ -467,11 +468,11 @@ def ask_length_and_type_window(names, last_type, last_length, info_text):
     return win.result
 
 
-def ask_length_and_type_dialogs(names, last_type, last_length, info_text):
+def ask_length_and_type_dialogs(names, last_type, last_length, info):
     """Запасной вариант на стандартных диалогах pyRevit: длина, затем тип."""
     while True:
         text = forms.ask_for_string(default=hvac_tail.format_mm(last_length),
-                                    prompt=u'{0}\nДлина гибкого участка, мм:'.format(info_text),
+                                    prompt=u'{0}\n{1}\nДлина гибкого участка, мм:'.format(info[0], info[1]),
                                     title=u'FlexTail')
         if text is None:
             return None
@@ -665,14 +666,14 @@ def main():
     entries = [(type_name(t), type_shape(t), t) for t in types]
     by_name = dict((n, t) for n, _s, t in entries)
     entry_pairs = [(n, s) for n, s, _t in entries]
-    cfg_flex = get_cfg(FLEX_SECTION)
+    cfg = get_cfg(TAIL_SECTION)
     ctx = hvac_revit.app_context(doc)
-    state = {'value': hvac_flex_settings.get_config_value(cfg_flex),
-             'number': hvac_flex_settings.get_config_number(cfg_flex, ctx), 'learned': None, 'warnings': []}
-    last_length = hvac_tail.get_last_length(get_cfg(TAIL_SECTION))
+    state = {'value': hvac_flex_settings.get_config_value(cfg),
+             'number': hvac_flex_settings.get_config_number(cfg, ctx), 'learned': None, 'warnings': []}
+    start_length = hvac_tail.start_length(cfg)
     last_type = load_last('flex_type')
-    hvac_log.log(TOOL, u'типов гибких: {0}; «Гибкая конфигурация» = «{1}»; последняя длина {2} мм; журнал {3}'.format(
-        len(types), state['value'], hvac_tail.format_mm(last_length), hvac_log.log_path()))
+    hvac_log.log(TOOL, u'типов гибких: {0}; «Гибкая конфигурация» = «{1}»; длина в окне {2} мм (запоминание {3}); журнал {4}'.format(
+        len(types), state['value'], hvac_tail.format_mm(start_length), hvac_tail.is_remember(cfg), hvac_log.log_path()))
 
     prompt = (u'FlexTail · кликните по элементу, к которому подключён жёсткий воздуховод '
               u'(оборудование, арматура, соединительная деталь, воздухораспределитель); '
@@ -703,16 +704,19 @@ def main():
         forms.alert(u'Нет типов гибкого воздуховода для формы «{0}».'.format(
             hvac_sizes.SHAPE_NAMES.get(size.get('shape'), u'?')), title=u'FlexTail')
         return
-    info = u'Жёсткий воздуховод: {0}, длина {1} мм'.format(hvac_sizes.label(size), hvac_tail.format_mm(duct_mm))
+    info = (u'Найден элемент категории «{0}»'.format(category_name(duct)),
+            u'Тип: {0}\nСечение: {1}\nДлина: {2} мм'.format(
+                type_label(duct), hvac_ui.size_text(hvac_sizes.label(size), size.get('shape') is not None),
+                hvac_tail.format_mm(duct_mm)))
     try:
-        result = ask_length_and_type_window(sorted(names), last_type, last_length, info)
+        result = ask_length_and_type_window(sorted(names), last_type, start_length, info)
     except Exception:
         hvac_log.log_exception(TOOL, u'окно длины и типа не удалось, беру стандартные диалоги')
-        result = ask_length_and_type_dialogs(sorted(names), last_type, last_length, info)
+        result = ask_length_and_type_dialogs(sorted(names), last_type, start_length, info)
     if result is None:
         script.exit()
     length_mm, chosen = result
-    hvac_tail.set_last_length(get_cfg(TAIL_SECTION), length_mm)
+    hvac_tail.set_last_length(cfg, length_mm)
     save_last('flex_type', chosen)
     hvac_log.log(TOOL, u'выбрано: длина {0} мм, тип «{1}»'.format(hvac_tail.format_mm(length_mm), chosen))
 
@@ -732,8 +736,8 @@ def main():
         forms.alert(note, title=u'FlexTail')
     for w in sorted(set(state['warnings'])):
         script.get_output().print_md(u'* **Внимание:** {0}'.format(w))       # окно вывода — только когда есть что показать
-    if state['learned'] is not None and state['learned'] != hvac_flex_settings.get_config_number(cfg_flex, ctx):
-        hvac_flex_settings.set_config_number(cfg_flex, state['learned'], ctx)       # в следующий раз — без перебора
+    if state['learned'] is not None and state['learned'] != hvac_flex_settings.get_config_number(cfg, ctx):
+        hvac_flex_settings.set_config_number(cfg, state['learned'], ctx)       # в следующий раз — без перебора
         script.save_config()
 
 

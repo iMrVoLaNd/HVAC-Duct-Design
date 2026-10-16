@@ -16,6 +16,7 @@ import unittest
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SCRIPT = os.path.join(HERE, '..', 'HVAC.extension', 'HVAC.tab', 'Systems.panel', 'FlexTail.pushbutton', 'script.py')
+CONFIG = os.path.join(HERE, '..', 'HVAC.extension', 'HVAC.tab', 'Systems.panel', 'FlexTail.pushbutton', 'config.py')
 LIB = os.path.join(HERE, '..', 'HVAC.extension', 'lib')
 os.environ.setdefault('HVAC_LOG_DIR', tempfile.mkdtemp())
 if LIB not in sys.path:
@@ -147,6 +148,10 @@ class Element(object):
     def get_Parameter(self, bip):
         return self.bip.get(bip)
 
+    def GetTypeId(self):
+        return types.SimpleNamespace(Value=7000 + self.Id.Value,
+                                     el=types.SimpleNamespace(Name=u'Тип воздуховода-%d' % self.Id.Value))
+
     def conns(self):
         return []
 
@@ -270,7 +275,7 @@ class World(object):
         self.ns = None
 
 
-def run_button(world, answers=None):
+def run_button(world, answers=None, path=None):
     answers = answers or {}
     DB = types.SimpleNamespace()
     DB.XYZ = XYZ
@@ -364,7 +369,8 @@ def run_button(world, answers=None):
             pass
 
         def OfClass(self, cls):
-            return {FlexDuctType: list(world.flex_types), Level: list(world.levels)}.get(cls, [])
+            return {FlexDuctType: list(world.flex_types), Level: list(world.levels),
+                    FlexDuct: list(getattr(world, 'flex_instances', []))}.get(cls, [])
 
     DB.FilteredElementCollector = Collector
 
@@ -439,14 +445,20 @@ def run_button(world, answers=None):
         def __init__(self):
             self.Click, self.Content = Event(), u''
 
+    class Check(object):
+        IsChecked = False
+
     class WPFWindow(object):
         def __init__(self, xaml, literal_string=False, **kw):
             if answers.get('_wpf_crash'):
                 raise RuntimeError('XAML не разобран')
             self.ctl = {}
             for name in re.findall(r'x:Name="(\w+)"', xaml):
-                self.ctl[name] = (Text() if name in ('info', 'length') else
-                                  Combo() if name == 'types' else Chip())
+                self.ctl[name] = (Text() if name in ('info', 'info_title', 'title_text', 'length', 'default_length') else
+                                  Combo() if name in ('types', 'param_value') else
+                                  Check() if name == 'remember' else Chip())
+            if 'param_value' in self.ctl:
+                assert 'IsEditable="False"' in xaml            # только выбор из списка, вводить своё нельзя
             self.closed = False
 
         def FindName(self, name):
@@ -457,7 +469,24 @@ def run_button(world, answers=None):
 
         def ShowDialog(self):
             c = self.ctl
-            world.log.append(('tailwin', c['info'].Text, c['length'].Text,
+            if 'param_value' in c:                                 # окно настроек
+                world.log.append(('settingswin', list(c['param_value'].Items), c['param_value'].SelectedItem,
+                                  c['default_length'].Text, c['remember'].IsChecked))
+                for reply in answers.get('_form', [{}]):
+                    if reply is None:
+                        return                                     # закрыто без сохранения
+                    if 'value' in reply:
+                        c['param_value'].SelectedItem = reply['value']
+                    if 'length' in reply:
+                        c['default_length'].Text = reply['length']
+                    if 'remember' in reply:
+                        c['remember'].IsChecked = reply['remember']
+                    for h in c['save_btn'].Click.handlers:
+                        h(None, None)
+                    if self.closed:
+                        return
+                return
+            world.log.append(('tailwin', c['info_title'].Text, c['info'].Text, c['length'].Text,
                               [c['chip%d' % i].Content for i in range(6)], list(c['types'].Items),
                               c['types'].SelectedItem))
             replies = answers.get('_window', [{}])
@@ -544,7 +573,7 @@ def run_button(world, answers=None):
                         'System.Collections.Generic': gen, 'Autodesk': types.ModuleType('Autodesk'),
                         'Autodesk.Revit': types.ModuleType('Autodesk.Revit'), 'Autodesk.Revit.Exceptions': exc})
     try:
-        world.ns = runpy.run_path(SCRIPT, run_name='__main__')
+        world.ns = runpy.run_path(path or SCRIPT, run_name='__main__')
     finally:
         for k, v in saved.items():
             if v is None:
@@ -813,11 +842,12 @@ class FlexTailTests(unittest.TestCase):
         click(w)
         self.go(w)
         win = [l for l in w.log if l[0] == 'tailwin'][0]
-        self.assertEqual(win[2], u'500')
-        self.assertEqual(win[3], [u'300', u'500', u'1000', u'1500', u'2000', u'2500'])
-        self.assertIn(u'Ø200', win[1])
-        self.assertIn(u'2000', win[1])
-        self.assertEqual((win[4], win[5]), ([u'Flex Alu', u'Flex Round'], u'Flex Alu'))
+        self.assertEqual(win[3], u'500')
+        self.assertEqual(win[4], [u'300', u'500', u'1000', u'1500', u'2000', u'2500'])
+        self.assertEqual(win[1], u'Найден элемент категории «OST_DuctCurves»')           # профессионально, без «жёсткий»
+        self.assertEqual(win[2].split(u'\n'), [u'Тип: Тип воздуховода-2', u'Сечение: Ø200 мм', u'Длина: 2000 мм'])
+        self.assertNotIn(u'Жёсткий', win[1] + win[2])
+        self.assertEqual((win[5], win[6]), ([u'Flex Alu', u'Flex Round'], u'Flex Alu'))
 
     def test_chip_puts_value_into_the_field(self):
         w = scene(3000)
@@ -840,7 +870,7 @@ class FlexTailTests(unittest.TestCase):
         click(w2)
         run_button(w2, {'_config': answers['_config']})
         win = [l for l in w2.log if l[0] == 'tailwin'][0]
-        self.assertEqual(win[2], u'1200')
+        self.assertEqual(win[3], u'1200')
         self.assertEqual(w2.created[0].created_with['points'][1], (round(1200 * MM, 6), 0, 0))
 
     def test_last_type_is_preselected_and_remembered(self):
@@ -851,7 +881,7 @@ class FlexTailTests(unittest.TestCase):
         w2 = scene(3000)
         click(w2)
         run_button(w2, {'_config': answers['_config']})
-        self.assertEqual([l for l in w2.log if l[0] == 'tailwin'][0][5], 'Flex Round')
+        self.assertEqual([l for l in w2.log if l[0] == 'tailwin'][0][6], 'Flex Round')
 
     def test_invalid_length_keeps_window_open_with_message(self):
         w = scene(3000)
@@ -973,7 +1003,8 @@ class FlexTailTests(unittest.TestCase):
         click(w)
         self.go(w)
         win = [l for l in w.log if l[0] == 'tailwin'][0]
-        self.assertEqual(win[4], [u'Flex Rect'])                              # круглые типы не предлагаются
+        self.assertEqual(win[5], [u'Flex Rect'])                              # круглые типы не предлагаются
+        self.assertIn(u'Сечение: 400×200 мм', win[2])
         f = w.created[0]
         self.assertAlmostEqual(f.params['w'].value, 400 * MM)
         self.assertAlmostEqual(f.params['h'].value, 200 * MM)
@@ -1013,13 +1044,13 @@ class FlexTailTests(unittest.TestCase):
         p = CfgParam(u'Гибкая конфигурация', u'Жёсткий')
         w.flex_types[0].param = w.flex_types[1].param = p
         click(w)
-        self.go(w, {'_config': {'flex_between': {'config_value': u'Спиральный'}}})
+        self.go(w, {'_config': {'flex_tail': {'config_value': u'Спиральный'}}})
         self.assertEqual(p.value, u'Спиральный')
         w2 = scene(2000)
         p2 = CfgParam(u'Гибкая конфигурация', u'Жёсткий')
         w2.flex_types[0].param = w2.flex_types[1].param = p2
         click(w2)
-        self.go(w2, {'_config': {'flex_between': {'config_value': u''}}})
+        self.go(w2, {'_config': {'flex_tail': {'config_value': u''}}})
         self.assertEqual(p2.sets, [])
 
     def test_flex_pattern_problem_is_a_warning_not_a_failure(self):
@@ -1037,6 +1068,57 @@ class FlexTailTests(unittest.TestCase):
         self.go(w)
         self.assertEqual(len(w.created), 1)
         self.assertTrue(any(l[0] == 'md' and u'не найден' in l[1] for l in w.log))
+
+    # ---------- у кнопки свои настройки: секция flex_tail, не общая с другими кнопками ----------
+
+    def test_settings_of_other_buttons_are_ignored(self):
+        w = scene(2000)
+        p = CfgParam(u'Гибкая конфигурация', u'Жёсткий')
+        w.flex_types[0].param = w.flex_types[1].param = p
+        click(w)
+        self.go(w, {'_config': {'flex_between': {'config_value': u'Спиральный', 'length_mm': u'999'}}})
+        self.assertEqual(p.value, u'Гибкий')                                  # QuickFlexConnect не влияет на FlexTail
+        self.assertEqual([l for l in w.log if l[0] == 'tailwin'][0][3], u'500')
+
+    def test_everything_is_saved_only_into_own_section(self):
+        w = scene(2000)
+        p = CfgParam(u'Гибкая конфигурация', u'Жёсткий')
+        w.flex_types[0].param = w.flex_types[1].param = p
+        click(w)
+        answers = self.go(w, {'_window': [{'length': '700', 'type': 'Flex Round'}]})
+        self.assertEqual(list(answers['_config']), ['flex_tail'])
+        self.assertEqual((answers['_config']['flex_tail']['length_mm'], answers['_config']['flex_tail']['flex_type']),
+                         (u'700', 'Flex Round'))
+
+    def test_remember_off_shows_default_length_each_time(self):
+        w = scene(3000)
+        click(w)
+        self.go(w, {'_config': {'flex_tail': {'remember_length': 'false', 'length_mm': '1200',
+                                              'default_length_mm': '800'}}})
+        self.assertEqual([l for l in w.log if l[0] == 'tailwin'][0][3], u'800')
+
+    def test_remember_on_prefers_last_over_default(self):
+        w = scene(3000)
+        click(w)
+        self.go(w, {'_config': {'flex_tail': {'length_mm': '1200', 'default_length_mm': '800'}}})
+        self.assertEqual([l for l in w.log if l[0] == 'tailwin'][0][3], u'1200')
+
+    def test_default_length_used_when_nothing_remembered(self):
+        w = scene(3000)
+        click(w)
+        self.go(w, {'_config': {'flex_tail': {'default_length_mm': '800'}}})
+        self.assertEqual([l for l in w.log if l[0] == 'tailwin'][0][3], u'800')
+
+    def test_window_xaml_is_well_formed_and_has_info_block(self):
+        import xml.dom.minidom
+        w = scene(2000)
+        w.picks = [Cancelled]
+        run_button(w)
+        xaml = w.ns['tail_xaml']()
+        xml.dom.minidom.parseString(xaml.encode('utf-8'))
+        for name in ('info_title', 'info', 'length', 'chip0', 'chip5', 'types', 'ok_btn', 'cancel_btn'):
+            self.assertIn(u'x:Name="%s"' % name, xaml)
+        self.assertIn(u'Title="FlexTail"', xaml)
 
     # ---------- ошибки ----------
 
@@ -1065,6 +1147,124 @@ class FlexTailTests(unittest.TestCase):
         click(w)
         self.go(w)
         self.assertEqual([l for l in w.log if l[0] == 'md'], [])
+
+
+class EnumParam(object):
+    """Параметр-список: целое число, на экране текст. Set принимает только существующие варианты."""
+
+    def __init__(self, name, options, value=0):
+        self.Definition = types.SimpleNamespace(Name=name)
+        self.options, self.value, self.StorageType, self.IsReadOnly = list(options), value, 'i', False
+
+    def AsInteger(self):
+        return self.value
+
+    def AsValueString(self):
+        return self.options[self.value] if 0 <= self.value < len(self.options) else u''
+
+    def Set(self, v):
+        if not isinstance(v, int) or not 0 <= v < len(self.options):
+            return False
+        self.value = v
+        return True
+
+
+class FlexTailConfigTests(unittest.TestCase):
+    NO = u'(не менять параметр)'
+
+    def go(self, w=None, answers=None):
+        w = w or scene(2000)
+        answers = answers if answers is not None else {}
+        run_button(w, answers, path=CONFIG)
+        return w, answers
+
+    def log_text(self):
+        with open(hvac_log.log_path(), encoding='utf-8') as f:
+            return f.read()
+
+    def with_options(self, options=(u'Жёсткий', u'Гибкий', u'Спиральный')):
+        w = scene(2000)
+        w.flex_types[0].param = EnumParam(u'Гибкая конфигурация', options)
+        return w
+
+    def test_window_defaults_without_project_options(self):
+        w, _ = self.go()
+        win = [l for l in w.log if l[0] == 'settingswin'][0]
+        self.assertEqual(win[1:], ([self.NO, u'Гибкий'], u'Гибкий', u'500', True))
+
+    def test_options_come_from_the_project_and_are_probed_in_a_rolled_back_transaction(self):
+        w, _ = self.go(self.with_options())
+        win = [l for l in w.log if l[0] == 'settingswin'][0]
+        self.assertEqual(win[1], [self.NO, u'Жёсткий', u'Гибкий', u'Спиральный'])
+        self.assertEqual(win[2], u'Гибкий')
+        self.assertEqual(w.tx, ['start', 'rollback'])
+
+    def test_save_writes_only_into_own_section_with_number(self):
+        w, answers = self.go(self.with_options(), {'_form': [{'value': u'Спиральный', 'length': '800', 'remember': False}]})
+        self.assertEqual(list(answers['_config']), ['flex_tail'])
+        cfg = answers['_config']['flex_tail']
+        self.assertEqual((cfg['config_value'], cfg['config_value_num'], cfg['default_length_mm'], cfg['remember_length']),
+                         (u'Спиральный', '2', u'800', u'false'))
+        self.assertTrue(cfg['config_value_ctx'])                              # число привязано к версии/языку Revit
+        self.assertGreaterEqual(w.saves, 1)
+
+    def test_no_change_item_saves_empty_value(self):
+        _, answers = self.go(self.with_options(), {'_form': [{'value': self.NO}]})
+        self.assertEqual(answers['_config']['flex_tail']['config_value'], u'')
+
+    def test_existing_values_are_shown_back(self):
+        cfg = {'flex_tail': {'config_value': u'Спиральный', 'default_length_mm': u'750', 'remember_length': u'false'}}
+        w, _ = self.go(self.with_options(), {'_config': cfg})
+        win = [l for l in w.log if l[0] == 'settingswin'][0]
+        self.assertEqual(win[2:], (u'Спиральный', u'750', False))
+
+    def test_stale_value_falls_back_to_gibkiy(self):
+        cfg = {'flex_tail': {'config_value': u'Исчезнувший'}}
+        w, _ = self.go(self.with_options(), {'_config': cfg})
+        self.assertEqual([l for l in w.log if l[0] == 'settingswin'][0][2], u'Гибкий')
+
+    def test_invalid_default_length_keeps_window_open_with_message(self):
+        w, answers = self.go(None, {'_form': [{'length': 'abc'}, {'length': '-5'}, {'length': u'900 мм'}]})
+        self.assertEqual(len([a for a in w.alerts if u'число' in a]), 2)
+        self.assertEqual(answers['_config']['flex_tail']['default_length_mm'], u'900')
+
+    def test_closing_window_changes_nothing(self):
+        w = scene(2000)
+        answers = {'_form': [None]}
+        with self.assertRaises(ExitScript):
+            self.go(w, answers)
+        self.assertEqual(answers['_config'], {'flex_tail': {}})                 # читали, но ничего не записали
+        self.assertEqual(w.saves, 0)
+
+    def test_other_sections_are_not_touched(self):
+        cfg = {'flex_between': {'config_value': u'Старое', 'loop': 'true'}}
+        _, answers = self.go(None, {'_config': cfg, '_form': [{'value': u'Гибкий'}]})
+        self.assertEqual(answers['_config']['flex_between'], {'config_value': u'Старое', 'loop': 'true'})
+
+    def test_fallback_dialogs_when_wpf_fails(self):
+        w, answers = self.go(None, {'_wpf_crash': True, '_ask_values': [u'abc', u'900']})
+        cfg = answers['_config']['flex_tail']
+        self.assertEqual((cfg['default_length_mm'], cfg['remember_length']), (u'900', u'true'))
+        self.assertTrue(any(u'число' in a for a in w.alerts))
+
+    def test_settings_xaml_is_well_formed(self):
+        import xml.dom.minidom
+        w, _ = self.go()
+        xaml = w.ns['settings_xaml']()
+        xml.dom.minidom.parseString(xaml.encode('utf-8'))
+        for name in ('param_value', 'default_length', 'remember', 'save_btn', 'cancel_btn'):
+            self.assertIn(u'x:Name="%s"' % name, xaml)
+        self.assertIn(u'Title="FlexTail — настройки"', xaml)
+
+    def test_saved_settings_drive_the_button(self):
+        w, answers = self.go(self.with_options(), {'_form': [{'value': u'Спиральный', 'length': '800', 'remember': False}]})
+        w2 = scene(3000)
+        p = CfgParam(u'Гибкая конфигурация', u'Жёсткий')
+        w2.flex_types[0].param = w2.flex_types[1].param = p
+        click(w2)
+        run_button(w2, {'_config': answers['_config']})
+        self.assertEqual(p.value, u'Спиральный')
+        self.assertEqual([l for l in w2.log if l[0] == 'tailwin'][0][3], u'800')
 
 
 if __name__ == '__main__':

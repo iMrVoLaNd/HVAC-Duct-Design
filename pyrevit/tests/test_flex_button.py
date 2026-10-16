@@ -958,6 +958,18 @@ class FlexButtonTests(unittest.TestCase):
         self.assertIsNotNone(f)
         self.assertIn(u'налаштування розмірів недоступні', self._log_text())
 
+    def test_settings_window_xaml_is_well_formed_and_in_common_style(self):
+        import xml.dom.minidom
+        w = scenario()
+        run_button(w, {'_form': {'value': u'Гибкий', 'loop': False}}, path=CONFIG)
+        xaml = w.ns['settings_xaml']()
+        xml.dom.minidom.parseString(xaml.encode('utf-8'))
+        for name in ('param_value', 'pick_type', 'loop', 'save_btn', 'cancel_btn'):
+            self.assertIn(u'x:Name="%s"' % name, xaml)
+        self.assertIn(u'IsEditable="False"', xaml)
+        self.assertIn(u'Title="QuickFlexConnect — настройки"', xaml)
+        self.assertIn(u'WindowStyle="None"', xaml)
+
     # ---------- блок «выбранные элементы» в окнах выбора ----------
 
     @staticmethod

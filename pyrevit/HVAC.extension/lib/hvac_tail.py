@@ -12,7 +12,11 @@ CHIPS_MM = (300, 500, 1000, 1500, 2000, 2500)      # быстрые значен
 MIN_LENGTH_MM = 5.0                                # короче не принимаем (Revit не построит и 2,5 мм)
 MAX_LENGTH_MM = 50000.0
 
-LENGTH_KEY = 'length_mm'
+LENGTH_KEY = 'length_mm'                  # последняя введённая длина
+DEFAULT_LENGTH_KEY = 'default_length_mm'  # «длина по умолчанию» из окна настроек
+REMEMBER_KEY = 'remember_length'          # запоминать ли последнюю длину (по умолчанию да)
+
+SECTION = 'flex_tail'                     # собственная секция конфигурации кнопки FlexTail (не общая с другими кнопками)
 
 
 def mm_to_ft(mm):
@@ -44,17 +48,48 @@ def parse_length_mm(text):
     return value
 
 
-def get_last_length(cfg):
-    """Последняя введённая длина (мм); нет сохранённой или она испорчена — DEFAULT_LENGTH_MM."""
+def _read_length(cfg, key):
     try:
-        value = parse_length_mm(cfg.get_option(LENGTH_KEY, u''))
+        return parse_length_mm(cfg.get_option(key, u''))
     except Exception:
-        value = None
+        return None
+
+
+def get_default_length(cfg):
+    """Длина по умолчанию из настроек; нет или испорчена — DEFAULT_LENGTH_MM."""
+    value = _read_length(cfg, DEFAULT_LENGTH_KEY)
     return DEFAULT_LENGTH_MM if value is None else value
+
+
+def set_default_length(cfg, mm):
+    cfg.set_option(DEFAULT_LENGTH_KEY, format_mm(mm))
+
+
+def is_remember(cfg):
+    """Запоминать последнюю длину? Любая ошибка чтения = да (так задумано по умолчанию)."""
+    try:
+        return str(cfg.get_option(REMEMBER_KEY, u'true')).strip().lower() in (u'1', u'true', u'yes', u'on')
+    except Exception:
+        return True
+
+
+def set_remember(cfg, value):
+    cfg.set_option(REMEMBER_KEY, u'true' if value else u'false')
+
+
+def get_last_length(cfg):
+    """Последняя введённая длина (мм); нет сохранённой или она испорчена — длина по умолчанию."""
+    value = _read_length(cfg, LENGTH_KEY)
+    return get_default_length(cfg) if value is None else value
 
 
 def set_last_length(cfg, mm):
     cfg.set_option(LENGTH_KEY, format_mm(mm))
+
+
+def start_length(cfg):
+    """Какую длину показать в окне: последнюю введённую (если запоминание включено) или длину по умолчанию."""
+    return get_last_length(cfg) if is_remember(cfg) else get_default_length(cfg)
 
 
 def plan_tail(length_ft, duct_ft, min_ft=MIN_LEN_FT):

@@ -27,6 +27,7 @@ try:
 
     import hvac_flex_settings
     import hvac_revit
+    import hvac_ui
 except Exception:
     hvac_log.log_exception(TOOL, u'імпорт модулів')
     raise
@@ -48,25 +49,18 @@ TITLE = u'QuickFlexConnect — настройки'
 NO_CHANGE = u'(не менять параметр)'      # пункт списку: значення порожнє — параметр не чіпати
 
 
-XAML = u"""
-<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="QuickFlexConnect — настройки" Width="440" SizeToContent="Height"
-        WindowStartupLocation="CenterScreen" ResizeMode="NoResize" ShowInTaskbar="False">
-  <StackPanel Margin="16">
-    <TextBlock Text="Параметр гибкого воздуховода «Гибкая конфигурация»:" TextWrapping="Wrap" Margin="0,0,0,6"/>
-    <ComboBox x:Name="param_value" IsEditable="False" Margin="0,0,0,14"/>
-    <CheckBox x:Name="pick_type" Content="Тип с образца" Margin="0,0,0,8"
-              ToolTip="Вместо выбора типа из списка: клик по гибкому воздуховоду в модели, тип берётся с него"/>
-    <CheckBox x:Name="loop" Content="Цикл" Margin="0,0,0,16"
-              ToolTip="Строить пары подряд, пока не нажат Esc"/>
-    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-      <Button x:Name="save_btn" Content="Сохранить" Width="100" Margin="0,0,8,0" IsDefault="True"/>
-      <Button x:Name="cancel_btn" Content="Отмена" Width="100" IsCancel="True"/>
-    </StackPanel>
-  </StackPanel>
-</Window>
-"""
+def settings_xaml():
+    """XAML окна настроек в общем виде кнопок HVAC (hvac_ui)."""
+    body = u'\n'.join((
+        hvac_ui.label(u'Параметр гибкого воздуховода «Гибкая конфигурация»:'),
+        u'      <TextBlock Style="{StaticResource Muted}" Text="(можно только выбрать из списка)" Margin="0,0,0,6"/>',
+        u'      <ComboBox x:Name="param_value" IsEditable="False" Margin="0,0,0,14"/>',
+        u'      <CheckBox x:Name="pick_type" Content="Тип с образца" Margin="0,0,0,8"',
+        u'                ToolTip="Вместо выбора типа из списка: клик по гибкому воздуховоду в модели, тип берётся с него"/>',
+        u'      <CheckBox x:Name="loop" Content="Цикл" Margin="0,0,0,16"',
+        u'                ToolTip="Строить пары подряд, пока не нажат Esc"/>',
+        hvac_ui.buttons(u'save_btn', u'Сохранить')))
+    return hvac_ui.window_xaml(TITLE, 460, body)
 
 
 def read_options():
@@ -119,7 +113,7 @@ def ask_with_window(value, loop, options, pick_type):
 
     class SettingsWindow(forms.WPFWindow):
         def __init__(self):
-            forms.WPFWindow.__init__(self, XAML, literal_string=True)
+            forms.WPFWindow.__init__(self, settings_xaml(), literal_string=True)
             self.result = None
             combo = self.FindName('param_value')
             items = choices_for(value, options)

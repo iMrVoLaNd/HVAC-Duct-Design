@@ -70,6 +70,42 @@ class RememberTests(unittest.TestCase):
         self.assertIn(ht.DEFAULT_LENGTH_MM, ht.CHIPS_MM)
 
 
+class SettingsTests(unittest.TestCase):
+    def test_defaults(self):
+        cfg = Cfg()
+        self.assertEqual((ht.get_default_length(cfg), ht.is_remember(cfg), ht.start_length(cfg)), (500, True, 500))
+        self.assertEqual(ht.SECTION, 'flex_tail')
+
+    def test_default_length_roundtrip_and_bad_value(self):
+        cfg = Cfg()
+        ht.set_default_length(cfg, 750)
+        self.assertEqual(ht.get_default_length(cfg), 750)
+        self.assertEqual(ht.get_default_length(Cfg(default_length_mm=u'??')), 500)
+
+    def test_remember_roundtrip(self):
+        cfg = Cfg()
+        ht.set_remember(cfg, False)
+        self.assertFalse(ht.is_remember(cfg))
+        ht.set_remember(cfg, True)
+        self.assertTrue(ht.is_remember(cfg))
+
+    def test_start_length_uses_last_when_remembering_else_default(self):
+        cfg = Cfg(length_mm=u'1200', default_length_mm=u'800')
+        self.assertEqual(ht.start_length(cfg), 1200)
+        ht.set_remember(cfg, False)
+        self.assertEqual(ht.start_length(cfg), 800)
+
+    def test_last_length_falls_back_to_configured_default(self):
+        self.assertEqual(ht.get_last_length(Cfg(default_length_mm=u'800')), 800)
+        self.assertEqual(ht.get_last_length(Cfg(length_mm=u'junk', default_length_mm=u'800')), 800)
+
+    def test_broken_config_is_not_fatal(self):
+        class Boom(object):
+            def get_option(self, *a):
+                raise RuntimeError('нет доступа')
+        self.assertEqual((ht.start_length(Boom()), ht.is_remember(Boom())), (500, True))
+
+
 class PlanTests(unittest.TestCase):
     def test_longer_duct_is_split_at_requested_length(self):
         p = ht.plan_tail(500 * FT, 2000 * FT)
