@@ -692,7 +692,7 @@ BUILD_XAML = u"""
       <ToggleButton x:Name="chip0" MinWidth="120" Padding="12,5" Margin="0,0,8,0"/>
       <ToggleButton x:Name="chip1" MinWidth="120" Padding="12,5"/>
     </StackPanel>
-    <ComboBox x:Name="custom_size" Margin="0,0,0,6"/>
+<!--CUSTOM_ROW-->
 <!--BOX_ROW-->
     <TextBlock Text="Тип гибкого воздуховода:" Margin="0,0,0,4"/>
     <ComboBox x:Name="types" Margin="0,0,0,12"/>
@@ -703,6 +703,8 @@ BUILD_XAML = u"""
   </StackPanel>
 </Window>
 """
+
+CUSTOM_ROW_XAML = u'''    <ComboBox x:Name="custom_size" Margin="0,0,0,6"/>'''
 
 BOX_ROW_XAML = u'''    <StackPanel Orientation="Horizontal" Margin="0,0,0,12">
       <ComboBox x:Name="custom_w" Width="184" Margin="0,0,8,0" IsEnabled="False"/>
@@ -715,10 +717,11 @@ CUSTOM_HEIGHT = u'Высота…'
 NO_CUSTOM_SIZES = u'(других стандартных размеров нет)'
 
 
-def build_xaml(with_box):
-    """XAML окна размера и типа; строка «ширина / высота» (для прямоугольных и овальных) — только если для
-    них нашлись стандартные размеры проекта."""
-    return BUILD_XAML.replace(u'<!--BOX_ROW-->', BOX_ROW_XAML if with_box else u'')
+def build_xaml(with_box, with_custom=True):
+    """XAML окна размера и типа. Строка «ширина / высота» (прямоугольные и овальные) — только если для них нашлись
+    стандартные размеры проекта; список «Другой размер…» (диаметры) — если есть диаметры или нет строки ширина/высота."""
+    xaml = BUILD_XAML.replace(u'<!--CUSTOM_ROW-->', CUSTOM_ROW_XAML if with_custom else u'')
+    return xaml.replace(u'<!--BOX_ROW-->', BOX_ROW_XAML if with_box else u'')
 
 
 def ask_size_and_type_window(sizes, custom_sizes, entries, last, box_dims=None):
@@ -731,13 +734,14 @@ def ask_size_and_type_window(sizes, custom_sizes, entries, last, box_dims=None):
 
     class BuildWindow(forms.WPFWindow):
         def __init__(self):
-            forms.WPFWindow.__init__(self, build_xaml(bool(box_dims)), literal_string=True)
+            has_custom = bool(custom_sizes) or not box_dims
+            forms.WPFWindow.__init__(self, build_xaml(bool(box_dims), has_custom), literal_string=True)
             self.result = None
             self.size = sizes[0]
             self.base = sizes[0]                 # размер выбранной плашки: от него считаются ширина и высота
             self.busy = False                    # пока заполняем списки, их SelectionChanged не обрабатываем
             self.chips = [self.FindName('chip0'), self.FindName('chip1')]
-            self.custom = self.FindName('custom_size')
+            self.custom = self.FindName('custom_size') if has_custom else None
             self.types = self.FindName('types')
             self.box_w = self.FindName('custom_w') if box_dims else None
             self.box_h = self.FindName('custom_h') if box_dims else None
@@ -746,12 +750,13 @@ def ask_size_and_type_window(sizes, custom_sizes, entries, last, box_dims=None):
             chip_handlers = (self.on_chip0, self.on_chip1)
             for chip, handler in zip(self.chips, chip_handlers):
                 chip.Click += handler
-            self.custom.Items.Add(CUSTOM_PLACEHOLDER if custom_sizes else NO_CUSTOM_SIZES)
-            for c in custom_sizes:
-                self.custom.Items.Add(hvac_sizes.label(c))
-            self.custom.SelectedIndex = 0
-            self.custom.IsEnabled = bool(custom_sizes)
-            self.custom.SelectionChanged += self.on_custom
+            if self.custom is not None:
+                self.custom.Items.Add(CUSTOM_PLACEHOLDER if custom_sizes else NO_CUSTOM_SIZES)
+                for c in custom_sizes:
+                    self.custom.Items.Add(hvac_sizes.label(c))
+                self.custom.SelectedIndex = 0
+                self.custom.IsEnabled = bool(custom_sizes)
+                self.custom.SelectionChanged += self.on_custom
             if self.box_w is not None:
                 self.box_w.SelectionChanged += self.on_box
                 self.box_h.SelectionChanged += self.on_box
@@ -784,6 +789,10 @@ def ask_size_and_type_window(sizes, custom_sizes, entries, last, box_dims=None):
             finally:
                 self.busy = False
 
+        def reset_custom(self):
+            if self.custom is not None:
+                self.custom.SelectedIndex = 0
+
         def reset_box(self):
             if self.box_w is None:
                 return
@@ -798,7 +807,7 @@ def ask_size_and_type_window(sizes, custom_sizes, entries, last, box_dims=None):
             self.base = self.size = sizes[index]
             for i, chip in enumerate(self.chips):
                 chip.IsChecked = (i == index)
-            self.custom.SelectedIndex = 0
+            self.reset_custom()
             self.fill_box()
             self.refill_types()
 
@@ -834,7 +843,7 @@ def ask_size_and_type_window(sizes, custom_sizes, entries, last, box_dims=None):
             self.size = hvac_sizes.box_size(shape, w, h) if picked else self.base
             for i, chip in enumerate(self.chips):
                 chip.IsChecked = (not picked) and sizes[i] is self.base
-            self.custom.SelectedIndex = 0
+            self.reset_custom()
             self.refill_types()
 
         def on_ok(self, sender, args):

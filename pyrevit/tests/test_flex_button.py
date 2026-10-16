@@ -515,15 +515,17 @@ def run_button(world, answers=None, loop=False, path=None):
         def ShowDialog(self):
             c = self.ctl
             if 'chip0' in c:                                  # вікно розміру й типу (розміри різні)
-                world.log.append(('buildwin', [c['chip0'].Content, c['chip1'].Content], list(c['custom_size'].Items),
-                                  c['custom_size'].IsEnabled))
+                has_custom = 'custom_size' in c            # без диаметров и с рядом ширина/высота списка «Другой размер…» нет
+                world.log.append(('buildwin', [c['chip0'].Content, c['chip1'].Content],
+                                  list(c['custom_size'].Items) if has_custom else None,
+                                  c['custom_size'].IsEnabled if has_custom else None))
                 if 'custom_w' in c:                               # рядок «ширина / высота» (прямоугольные, овальные)
                     world.log.append(('boxwin', list(c['custom_w'].Items), list(c['custom_h'].Items),
                                       c['custom_w'].IsEnabled))
                 reply = answers.get('_build', {})
                 if reply is None:
                     return                                    # закрито без вибору
-                if 'custom' in reply:
+                if 'custom' in reply and 'custom_size' in c:
                     c['custom_size'].SelectedIndex = reply['custom']
                 if 'width' in reply:
                     c['custom_w'].SelectedIndex = reply['width']
@@ -533,7 +535,8 @@ def run_button(world, answers=None, loop=False, path=None):
                     c['chip%d' % reply['chip']].Click.fire()
                 world.build_state = types.SimpleNamespace(
                     types=list(c['types'].Items), type=c['types'].SelectedItem,
-                    chips=[c['chip0'].IsChecked, c['chip1'].IsChecked], custom_index=c['custom_size'].SelectedIndex,
+                    chips=[c['chip0'].IsChecked, c['chip1'].IsChecked],
+                    custom_index=(c['custom_size'].SelectedIndex if has_custom else None),
                     box_index=((c['custom_w'].SelectedIndex, c['custom_h'].SelectedIndex) if 'custom_w' in c else None),
                     box_enabled=(c['custom_w'].IsEnabled if 'custom_w' in c else None))
                 if 'type' in reply:
@@ -959,6 +962,7 @@ class FlexButtonTests(unittest.TestCase):
         win = [l for l in w.log if l[0] == 'boxwin'][0]
         dims = [u'100', u'150', u'200', u'300', u'400']                      # объединение ширин и высот, без «не для списков»
         self.assertEqual((win[1], win[2], win[3]), ([u'Ширина…'] + dims, [u'Высота…'] + dims, True))
+        self.assertIsNone([l for l in w.log if l[0] == 'buildwin'][0][2])    # диаметров нет — «Другой размер…» не показываем
         self.assertAlmostEqual(f.params['w'].value, 300 / 304.8, places=6)   # выбрана ширина 300
         self.assertAlmostEqual(f.params['h'].value, 200 / 304.8, places=6)   # высота осталась как у плашки
         self.assertEqual(w.build_state.chips, [False, False])
