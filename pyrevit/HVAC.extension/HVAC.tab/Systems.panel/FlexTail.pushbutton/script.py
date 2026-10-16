@@ -381,11 +381,11 @@ def level_id_for(duct, point):
 TAIL_XAML = u"""
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="FlexTail — жёсткий воздуховод в гибкий" Width="420" SizeToContent="Height"
+        Title="FlexTail" Width="420" SizeToContent="Height"
         WindowStartupLocation="CenterScreen" ResizeMode="NoResize" ShowInTaskbar="False" Topmost="True">
   <StackPanel Margin="12">
     <TextBlock x:Name="info" TextWrapping="Wrap" Margin="0,0,0,10" Opacity="0.7"/>
-    <TextBlock Text="Длина участка, который станет гибким, мм:" Margin="0,0,0,4"/>
+    <TextBlock Text="Длина гибкого участка, мм:" Margin="0,0,0,4"/>
     <TextBox x:Name="length" Margin="0,0,0,6"/>
     <WrapPanel Margin="0,0,0,12">
       <Button x:Name="chip0" MinWidth="58" Padding="6,4" Margin="0,0,6,6"/>
@@ -458,7 +458,7 @@ def ask_length_and_type_dialogs(names, last_type, last_length, info_text):
     """Запасной вариант на стандартных диалогах pyRevit: длина, затем тип."""
     while True:
         text = forms.ask_for_string(default=hvac_tail.format_mm(last_length),
-                                    prompt=u'{0}\nДлина участка, который станет гибким, мм:'.format(info_text),
+                                    prompt=u'{0}\nДлина гибкого участка, мм:'.format(info_text),
                                     title=u'FlexTail')
         if text is None:
             return None
