@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """Журнал кнопок HVAC: пише кроки роботи й повні помилки у файл, щоб було видно, на чому падаємо.
 
-Файл:  %APPDATA%\\HVAC-Duct-Design\\hvac-tools.log   (або папка з змінної середовища HVAC_LOG_DIR,
-       якщо APPDATA немає — тимчасова папка). Старий журнал (понад 512 КБ) переїжджає в hvac-tools.log.1.
+Файл у папці кнопки: <папка кнопки>\\<ім'я кнопки>.log — у кожної кнопки свій журнал (див. configure()).
+Не вдалося писати в папку кнопки — резервний файл %APPDATA%\\HVAC-Duct-Design\\<ім'я>.log (або тимчасова папка).
+Змінна середовища HVAC_LOG_DIR переважає все (для тестів). Старий журнал (понад 512 КБ) переїжджає в <ім'я>.log.1.
 
 Модуль не залежить від Revit; будь-яка помилка самого журналу ігнорується (журнал не має ламати кнопку).
 Сумісний з IronPython 3.4 і CPython (без f-рядків).
@@ -18,20 +19,34 @@ MAX_BYTES = 512 * 1024
 _NOT_ERRORS = ('Exit', 'Cancel')
 
 
+_CONFIG = {'folder': None, 'name': None}
+
+
+def configure(folder, name):
+    """Журнал цієї кнопки пишеться в її папку: <folder>/<name>.log. Викликати відразу після імпорту hvac_log."""
+    _CONFIG['folder'] = folder
+    _CONFIG['name'] = name
+
+
+def default_dir():
+    """Резервна папка журналу: %APPDATA%\\HVAC-Duct-Design (або тимчасова папка)."""
+    appdata = os.environ.get('APPDATA')
+    if appdata:
+        return os.path.join(appdata, 'HVAC-Duct-Design')
+    import tempfile                              # важкий імпорт — лише коли справді потрібен
+    return os.path.join(tempfile.gettempdir(), 'HVAC-Duct-Design')
+
+
 def log_dir():
-    base = os.environ.get('HVAC_LOG_DIR')
-    if not base:
-        appdata = os.environ.get('APPDATA')
-        if appdata:
-            base = os.path.join(appdata, 'HVAC-Duct-Design')
-        else:
-            import tempfile                      # важкий імпорт — лише коли справді потрібен
-            base = os.path.join(tempfile.gettempdir(), 'HVAC-Duct-Design')
-    return base
+    return os.environ.get('HVAC_LOG_DIR') or _CONFIG['folder'] or default_dir()
+
+
+def log_name():
+    return (_CONFIG['name'] + '.log') if _CONFIG['name'] else LOG_NAME
 
 
 def log_path():
-    return os.path.join(log_dir(), LOG_NAME)
+    return os.path.join(log_dir(), log_name())
 
 
 def _to_text(value):
@@ -65,19 +80,29 @@ def flush():
     _write_now(text)
 
 
+def _append(folder, text):
+    if not os.path.isdir(folder):
+        os.makedirs(folder)
+    path = os.path.join(folder, log_name())
+    if os.path.isfile(path) and os.path.getsize(path) > MAX_BYTES:
+        old = path + '.1'
+        if os.path.isfile(old):
+            os.remove(old)
+        os.rename(path, old)
+    with io.open(path, 'a', encoding='utf-8') as f:
+        f.write(text + u'\n')
+
+
 def _write_now(text):
     try:
-        folder = log_dir()
-        if not os.path.isdir(folder):
-            os.makedirs(folder)
-        path = log_path()
-        if os.path.isfile(path) and os.path.getsize(path) > MAX_BYTES:
-            old = path + '.1'
-            if os.path.isfile(old):
-                os.remove(old)
-            os.rename(path, old)
-        with io.open(path, 'a', encoding='utf-8') as f:
-            f.write(text + u'\n')
+        _append(log_dir(), text)
+        return
+    except Exception:
+        pass
+    if os.environ.get('HVAC_LOG_DIR'):               # явно заданную папку не подменяем
+        return
+    try:
+        _append(default_dir(), text)                 # папку кнопки писать нельзя — резервная
     except Exception:
         pass
 
@@ -150,18 +175,34 @@ def elapsed_ms(started):
     return int((time.time() - started) * 1000)
 
 
+def _last_line(text):
+    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    return lines[-1] if lines else u''
+
+
 def _report(tool, text):
+    """Показать ошибку: окно в общем стиле (с подробностями, кнопками «Копировать» и «Открыть журнал»).
+    Не получилось — по-старому: окно вывода pyRevit и стандартный диалог."""
     path = log_path()
+    try:
+        from pyrevit import forms
+        import hvac_dialog
+        hvac_dialog.configure(forms=forms, log_path=log_path)
+        hvac_dialog.error(heading=u'Ошибка в кнопке «{0}»'.format(tool), body=_last_line(text), details=text,
+                          title=u'HVAC', log=path)
+        return
+    except Exception:
+        pass
     try:
         from pyrevit import script
         out = script.get_output()
-        out.print_md(u'## Помилка в кнопці «{0}»'.format(tool))
+        out.print_md(u'## Ошибка в кнопке «{0}»'.format(tool))
         out.print_md(u'Журнал: `{0}`'.format(path))
         out.print_md(u'```\n{0}\n```'.format(text))
     except Exception:
         pass
     try:
         from pyrevit import forms
-        forms.alert(u'Помилка в кнопці «{0}».\nЖурнал: {1}'.format(tool, path), title=u'HVAC')
+        forms.alert(u'Ошибка в кнопке «{0}».\nЖурнал: {1}'.format(tool, path), title=u'HVAC')
     except Exception:
         pass

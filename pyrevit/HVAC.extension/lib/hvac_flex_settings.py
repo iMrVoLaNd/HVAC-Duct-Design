@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Налаштування кнопки QuickFlexConnect: режим циклу (за замовчуванням ВИМКНЕНО).
 
-Не залежить від Revit: працює з об'єктом конфігурації pyRevit (script.get_config(...)) і лише
+Не залежить від Revit: працює з об'єктом налаштувань кнопки (hvac_settings.load(...) або script.get_config(...)) і лише
 читає/пише параметр 'loop' текстом 'true'/'false'. Сумісно з IronPython 3.4 і CPython.
 """
 

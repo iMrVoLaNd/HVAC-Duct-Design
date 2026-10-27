@@ -1,0 +1,49 @@
+{
+  "v": 4,
+  "createdOnFiles": {
+    "v": 1,
+    "at": "2026-10-16T09:00:00Z"
+  },
+  "lists": "css",
+  "title": "QuickFlexConnect",
+  "order": [
+    "cover",
+    "what",
+    "categories",
+    "views",
+    "settings",
+    "windows",
+    "boxwin",
+    "same",
+    "sample",
+    "status",
+    "messages",
+    "logic",
+    "flow"
+  ],
+  "sections": {
+    "s1": {
+      "description": "Название и суть плагина",
+      "start": "cover"
+    },
+    "s2": {
+      "description": "С какими элементами и на каких видах работает",
+      "start": "categories"
+    },
+    "s3": {
+      "description": "Окна и подсказки плагина",
+      "start": "settings"
+    },
+    "s4": {
+      "description": "Логика и рабочий процесс",
+      "start": "logic"
+    }
+  },
+  "faces": {
+    "ibm-plex-sans": {
+      "family": "IBM Plex Sans",
+      "href": "https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;600;700&display=swap"
+    }
+  },
+  "designSystems": []
+}

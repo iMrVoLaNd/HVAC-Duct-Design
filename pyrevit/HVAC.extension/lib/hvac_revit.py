@@ -105,3 +105,10 @@ def set_enum_by_text(p, text, refresh=None, hint=None, trust_hint=False):
         if label.lower() == wanted:
             return number if p.Set(number) else None
     return None
+
+
+def select_element(uidoc, DB, List, element_id):
+    """Выделить элемент в модели по числовому id. Больше ничего: не приближаем вид и не открываем окон."""
+    ids = List[DB.ElementId]()
+    ids.Add(DB.ElementId(int(element_id)))
+    uidoc.Selection.SetElementIds(ids)
