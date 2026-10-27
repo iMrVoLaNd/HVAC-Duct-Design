@@ -15,6 +15,7 @@
 | PDF презентаций | `dist/QuickFlexConnect-slides.pdf`, `dist/FlexTail-slides.pdf` |
 | ТЗ QuickFlexConnect | `docs/QuickFlexConnect-TZ.md` |
 | **План и спецификация переноса на C#** | **`docs/CSHARP-PORT.md`** |
+| **ТЗ нового плагина MEP Parameter Sync** (C#, ещё не реализован) | **`docs/TZ-MEPParameterSync.md`** + приложение `docs/MEPParameterSync-legacy-spec.md` (правила прежней реализации) |
 
 ## Два плагина (суть)
 - **QuickFlexConnect** — гибкий воздуховод между двумя элементами за два клика (по ближайшим к клику свободным коннекторам;
