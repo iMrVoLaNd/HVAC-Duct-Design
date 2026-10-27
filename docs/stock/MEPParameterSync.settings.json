@@ -1,0 +1,547 @@
+{
+  "settings": {
+    "config_version": 3,
+    "target_param_source": "Shared",
+    "target_param_name": "ADSK_Система_Имя",
+    "target_param_key": "24c33696-0fa2-4a85-affd-e47d1cf20fb3",
+    "target_param_guid": "24c33696-0fa2-4a85-affd-e47d1cf20fb3",
+    "sort_mode": true,
+    "sort_param_source": "Project",
+    "sort_param_name": "Unicode Сортування",
+    "sort_param_key": "Unicode Сортування",
+    "sort_param_guid": "",
+    "sort_system_order": [
+      "ADSK_14_Опалення_Т11",
+      "ADSK_15_Опалення_Т21",
+      "ADSK_13_Опалення_ЕК",
+      "ADSK_11_ТП_Теплопостачання_Т12",
+      "ADSK_12_ТП_Теплопостачання_Т22",
+      "ADSK_11_А_Агрегати",
+      "ADSK_10_У_Повітряні завіси",
+      "ADSK_03_ПВ_Приплив",
+      "ADSK_04_ПВ_Витяжка",
+      "ADSK_01_П_Приплив",
+      "ADSK_02_В_Витяжка",
+      "ADSK_07_ПП_Приплив",
+      "ADSK_08_ВП_Витяжка",
+      "ADSK_09_ФВ_Приплив",
+      "ADSK_12_АП_Приплив",
+      "ADSK_13_АВ_Витяжка",
+      "ADSK_14_ПД_Підпір",
+      "ADSK_15_ВД_Димовидалення",
+      "ADSK_01_К_Спліт_Х3",
+      "ADSK_02_К_Спліт_Х4",
+      "ADSK_03_К_Мульті-Спліт_Х3",
+      "ADSK_04_К_Мульті-Спліт_Х4",
+      "ADSK_05_К_Мультізональна_Х3",
+      "ADSK_06_К_Мультізональна_Х4",
+      "ADSK_07_К_Мультізональна_Х5",
+      "ADSK_05_К_Подача_ПК",
+      "ADSK_06_К_Забір_РК",
+      "ADSK_08_ДС_Дренажна система",
+      "ADSK_09_ХП_Холодопостачання_ВО3",
+      "ADSK_10_ХП_Холодопостачання_ВО4",
+      "ADSK_16_ХП_Холодопостачання_Х1",
+      "ADSK_17_ХП_Холодопостачання_Х2",
+      "ADSK_19_Підпір повітря_ПП",
+      "ADSK_18_К1_Канализація побутова",
+      "ADSK_16_Р_Рециркуляція",
+      "Вентиляционное отверстие",
+      "Водяная система пожаротушения",
+      "Газовая система пожаротушения",
+      "Горячее водоснабжение",
+      "Дренчерная система пожаротушения",
+      "Другие системы пожаротушения",
+      "Холодное водоснабжение"
+    ],
+    "default_sort_system_order": [
+      "ADSK_14_Опалення_Т11",
+      "ADSK_15_Опалення_Т21",
+      "ADSK_13_Опалення_ЕК",
+      "ADSK_11_ТП_Теплопостачання_Т12",
+      "ADSK_12_ТП_Теплопостачання_Т22",
+      "ADSK_11_А_Агрегати",
+      "ADSK_10_У_Повітряні завіси",
+      "ADSK_03_ПВ_Приплив",
+      "ADSK_04_ПВ_Витяжка",
+      "ADSK_01_П_Приплив",
+      "ADSK_02_В_Витяжка",
+      "ADSK_07_ПП_Приплив",
+      "ADSK_08_ВП_Витяжка",
+      "ADSK_09_ФВ_Приплив",
+      "ADSK_12_АП_Приплив",
+      "ADSK_13_АВ_Витяжка",
+      "ADSK_17_ТХ_Технологія",
+      "ADSK_14_ПД_Підпір",
+      "ADSK_15_ВД_Димовидалення",
+      "ADSK_01_К_Спліт_Х3",
+      "ADSK_02_К_Спліт_Х4",
+      "ADSK_03_К_Мульті-Спліт_Х3",
+      "ADSK_04_К_Мульті-Спліт_Х4",
+      "ADSK_05_К_Мультізональна_Х3",
+      "ADSK_06_К_Мультізональна_Х4",
+      "ADSK_07_К_Мультізональна_Х5",
+      "ADSK_05_К_Подача_ПК",
+      "ADSK_06_К_Забір_РК",
+      "ADSK_08_ДС_Дренажна система",
+      "ADSK_09_ХП_Холодопостачання_ВО3",
+      "ADSK_10_ХП_Холодопостачання_ВО4",
+      "ADSK_16_ХП_Холодопостачання_Х1",
+      "ADSK_17_ХП_Холодопостачання_Х2",
+      "ADSK_19_Підпір повітря_ПП",
+      "ADSK_18_К1_Канализація побутова",
+      "ADSK_16_Р_Рециркуляція",
+      "Вентиляционное отверстие",
+      "Водяная система пожаротушения",
+      "Газовая система пожаротушения",
+      "Горячее водоснабжение",
+      "Дренчерная система пожаротушения",
+      "Другие системы пожаротушения",
+      "Прочее",
+      "Холодное водоснабжение"
+    ],
+    "log_dir_name": "log",
+    "log_max_days": 7,
+    "log_max_size_mb": 8,
+    "enable_logging": true,
+    "audit_mode": false,
+    "enable_perf_metrics": false,
+    "exclude_family_prefixes": [
+      "MC Void",
+      "MC_ConnectionNode"
+    ],
+    "ui_theme": "theme_angel.xaml",
+    "universal_markers": [
+      "Х3",
+      "Х4",
+      "Х5",
+      "X3",
+      "X4",
+      "X5",
+      "ВО3",
+      "ВО4",
+      "В03",
+      "В04",
+      "VO3",
+      "VO4",
+      "V03",
+      "V04",
+      "BO3",
+      "BO4",
+      "B03",
+      "B04",
+      "ДС",
+      "ДC",
+      "DS",
+      "DC",
+      "Т11",
+      "Т12",
+      "Т21",
+      "Т22",
+      "T11",
+      "T12",
+      "T21",
+      "T22",
+      "ТП",
+      "TП",
+      "А",
+      "A",
+      "У",
+      "Y",
+      "ПВ",
+      "ПB",
+      "П",
+      "В",
+      "B",
+      "ПП",
+      "ВП",
+      "BП",
+      "ФВ",
+      "ФB",
+      "ПД",
+      "ВД",
+      "BД",
+      "К",
+      "K",
+      "ХП",
+      "XП",
+      "К1",
+      "K1",
+      "Р",
+      "P",
+      "ТХ",
+      "ТX",
+      "TХ",
+      "TX"
+    ]
+  },
+  "system types": {
+    "ADSK_10_ХП_Холодопостачання_ВО4": {
+      "strategy": "DynamicNameStrategy",
+      "prefix": "ХП",
+      "log": "Система холодопостачання (фреонова)"
+    },
+    "ADSK_01_П_Приплив": {
+      "strategy": "DynamicNameStrategy",
+      "prefix": "П",
+      "log": "Припливна система"
+    },
+    "ADSK_15_Опалення_Т21": {
+      "strategy": "ConstantNameStrategy",
+      "prefix": "ОПАЛЕННЯ ВОДЯНЕ",
+      "log": "Опалення водяне"
+    },
+    "ADSK_08_ВП_Витяжка": {
+      "strategy": "DynamicNameStrategy",
+      "prefix": "ВП",
+      "log": "Природня витяжна система"
+    },
+    "ADSK_14_ПД_Підпір": {
+      "strategy": "DynamicNameStrategy",
+      "prefix": "ПД",
+      "log": "Система підпіру повітря"
+    },
+    "ADSK_13_АВ_Витяжка": {
+      "strategy": "DynamicNameStrategy",
+      "prefix": "АВ",
+      "log": "Аварійна витяжна система"
+    },
+    "ADSK_02_К_Спліт_Х4": {
+      "strategy": "DynamicNameStrategy",
+      "prefix": "К",
+      "log": "Система кондиціонування"
+    },
+    "ADSK_05_К_Подача_ПК": {
+      "strategy": "DynamicNameStrategy",
+      "prefix": "К",
+      "log": "Система кондиціонування канальна (подача)"
+    },
+    "ADSK_16_ХП_Холодопостачання_Х1": {
+      "strategy": "DynamicNameStrategy",
+      "prefix": "ХП",
+      "log": "Система холодопостачання (водяна)"
+    },
+    "ADSK_02_В_Витяжка": {
+      "strategy": "DynamicNameStrategy",
+      "prefix": "В",
+      "log": "Витяжна система"
+    },
+    "ADSK_06_К_Мультізональна_Х4": {
+      "strategy": "DynamicNameStrategy",
+      "prefix": "К",
+      "log": "Система кондиціонування"
+    },
+    "ADSK_12_АП_Приплив": {
+      "strategy": "DynamicNameStrategy",
+      "prefix": "АП",
+      "log": "Аварійна припливна система"
+    },
+    "ADSK_04_ПВ_Витяжка": {
+      "strategy": "DynamicNameStrategy",
+      "prefix": "ПВ",
+      "log": "Припливно-витяжна система (витяжка)"
+    },
+    "ADSK_07_К_Мультізональна_Х5": {
+      "strategy": "DynamicNameStrategy",
+      "prefix": "К",
+      "log": "Система кондиціонування"
+    },
+    "ADSK_18_К1_Канализація побутова": {
+      "strategy": "ConstantNameStrategy",
+      "prefix": "К1",
+      "log": "Каналізація побутова"
+    },
+    "ADSK_14_Опалення_Т11": {
+      "strategy": "ConstantNameStrategy",
+      "prefix": "ОПАЛЕННЯ ВОДЯНЕ",
+      "log": "Опалення водяне"
+    },
+    "ADSK_11_ТП_Теплопостачання_Т12": {
+      "strategy": "DynamicNameStrategy",
+      "prefix": "ТП",
+      "log": "Система теплопостачання"
+    },
+    "ADSK_01_К_Спліт_Х3": {
+      "strategy": "DynamicNameStrategy",
+      "prefix": "К",
+      "log": "Система кондиціонування"
+    },
+    "ADSK_08_ДС_Дренажна система": {
+      "strategy": "DynamicNameStrategy",
+      "prefix": "ДС",
+      "log": "Дренажна система"
+    },
+    "ADSK_11_А_Агрегати": {
+      "strategy": "DynamicNameStrategy",
+      "prefix": "А",
+      "log": "Опалювально-вентиляційний агрегат"
+    },
+    "ADSK_17_ТХ_Технологія": {
+      "strategy": "DynamicNameStrategy",
+      "prefix": "ТХ",
+      "log": "Технологічна витяжна система"
+    },
+    "ADSK_03_ПВ_Приплив": {
+      "strategy": "DynamicNameStrategy",
+      "prefix": "ПВ",
+      "log": "Припливно-витяжна система (приплив)"
+    },
+    "ADSK_13_Опалення_ЕК": {
+      "strategy": "ConstantNameStrategy",
+      "prefix": "ОПАЛЕННЯ ЕЛЕКТРОКОНВЕКТОРНЕ",
+      "log": "Опалення електроконвекторне"
+    },
+    "ADSK_15_ВД_Димовидалення": {
+      "strategy": "DynamicNameStrategy",
+      "prefix": "ВД",
+      "log": "Система димовидалення"
+    },
+    "ADSK_04_К_Мульті-Спліт_Х4": {
+      "strategy": "DynamicNameStrategy",
+      "prefix": "К",
+      "log": "Система кондиціонування"
+    },
+    "ADSK_06_К_Забір_РК": {
+      "strategy": "DynamicNameStrategy",
+      "prefix": "К",
+      "log": "Система кондиціонування канальна (рециркуляція)"
+    },
+    "ADSK_03_К_Мульті-Спліт_Х3": {
+      "strategy": "DynamicNameStrategy",
+      "prefix": "К",
+      "log": "Система кондиціонування"
+    },
+    "ADSK_07_ПП_Приплив": {
+      "strategy": "DynamicNameStrategy",
+      "prefix": "ПП",
+      "log": "Природня припливна система"
+    },
+    "ADSK_09_ХП_Холодопостачання_ВО3": {
+      "strategy": "DynamicNameStrategy",
+      "prefix": "ХП",
+      "log": "Система холодопостачання (фреонова)"
+    },
+    "ADSK_12_ТП_Теплопостачання_Т22": {
+      "strategy": "DynamicNameStrategy",
+      "prefix": "ТП",
+      "log": "Система теплопостачання"
+    },
+    "ADSK_09_ФВ_Приплив": {
+      "strategy": "DynamicNameStrategy",
+      "prefix": "ФВ",
+      "log": "Фільтрвентиляційна система"
+    },
+    "ADSK_16_Р_Рециркуляція": {
+      "strategy": "DynamicNameStrategy",
+      "prefix": "Р",
+      "log": "Рециркуляційна система"
+    },
+    "ADSK_05_К_Мультізональна_Х3": {
+      "strategy": "DynamicNameStrategy",
+      "prefix": "К",
+      "log": "Система кондиціонування"
+    },
+    "ADSK_10_У_Повітряні завіси": {
+      "strategy": "DynamicNameStrategy",
+      "prefix": "У",
+      "log": "Повітряна завіса"
+    },
+    "ADSK_17_ХП_Холодопостачання_Х2": {
+      "strategy": "DynamicNameStrategy",
+      "prefix": "ХП",
+      "log": "Система холодопостачання (водяна)"
+    },
+    "ADSK_19_Підпір повітря_ПП": {
+      "strategy": "DynamicNameStrategy",
+      "prefix": "ПП",
+      "log": "Підпір повітря в сховище"
+    }
+  },
+  "equipment": [
+    {
+      "system_type_key": "ADSK_03_ПВ_Приплив",
+      "strategy": "DynamicNameStrategy",
+      "search": "ПВ",
+      "log": "Припливно-витяжна вентустановка",
+      "prefix": "ПВ",
+      "sort_prefix": "ПВ"
+    },
+    {
+      "system_type_key": "ADSK_12_АП_Приплив",
+      "strategy": "DynamicNameStrategy",
+      "search": "АП",
+      "log": "Аварійна припливна вентустановка",
+      "prefix": "АП",
+      "sort_prefix": "АП"
+    },
+    {
+      "system_type_key": "ADSK_13_АВ_Витяжка",
+      "strategy": "DynamicNameStrategy",
+      "search": "АВ",
+      "log": "Аварійна витяжна вентустановка",
+      "prefix": "АВ",
+      "sort_prefix": "АВ"
+    },
+    {
+      "system_type_key": "ADSK_17_ТХ_Технологія",
+      "strategy": "DynamicNameStrategy",
+      "search": "ТХ",
+      "log": "Технологічна витяжна вентустановка",
+      "prefix": "ТХ",
+      "sort_prefix": "ТХ"
+    },
+    {
+      "system_type_key": "ADSK_01_П_Приплив",
+      "exclude": [
+        "ПВ",
+        "ПК",
+        "ПП",
+        "ТП",
+        "ХП",
+        "АП",
+        "ВП",
+        "ПД",
+        "ЕК",
+        "К1"
+      ],
+      "strategy": "DynamicNameStrategy",
+      "search": "П",
+      "log": "Припливна вентустановка",
+      "prefix": "П",
+      "sort_prefix": "П"
+    },
+    {
+      "system_type_key": "ADSK_02_В_Витяжка",
+      "exclude": [
+        "ПВ",
+        "РК",
+        "ВП",
+        "ФВ",
+        "АВ",
+        "АП",
+        "ВД",
+        "В03",
+        "В04",
+        "ВО3",
+        "ВО4"
+      ],
+      "strategy": "DynamicNameStrategy",
+      "search": "В",
+      "log": "Витяжна вентустановка",
+      "prefix": "В",
+      "sort_prefix": "В"
+    },
+    {
+      "system_type_key": "ADSK_10_У_Повітряні завіси",
+      "exclude": [
+        "ПВ",
+        "ПП",
+        "ВП",
+        "ФВ",
+        "АВ",
+        "АП",
+        "ПД",
+        "ВД",
+        "ДС",
+        "ХП",
+        "ТП",
+        "К1"
+      ],
+      "strategy": "DynamicNameStrategy",
+      "search": "У",
+      "log": "Повітряна завіса",
+      "prefix": "У",
+      "sort_prefix": "У"
+    },
+    {
+      "system_type_key": "",
+      "exclude": [
+        "П",
+        "ПВ"
+      ],
+      "strategy": "DynamicNameStrategy",
+      "search": [
+        "В03",
+        "В04",
+        "ВО3",
+        "ВО4"
+      ],
+      "log": "Блок системи холодопостачання (ККБ)",
+      "prefix": "ХП",
+      "sort_prefix": "ХП"
+    },
+    {
+      "system_type_key": "",
+      "exclude": [
+        "ПК",
+        "РК"
+      ],
+      "strategy": "DynamicNameStrategy",
+      "search": [
+        "Х3",
+        "Х4"
+      ],
+      "log": "Блок системи кондиціонування",
+      "prefix": "К",
+      "sort_prefix": "К"
+    },
+    {
+      "system_type_key": "",
+      "exclude": [],
+      "strategy": "DynamicNameStrategy",
+      "search": [
+        "ПК",
+        "РК"
+      ],
+      "log": "Блок канальний",
+      "prefix": "К",
+      "sort_prefix": "К"
+    },
+    {
+      "system_type_key": "ADSK_14_Опалення_Т11",
+      "strategy": "ConstantNameStrategy",
+      "search": [
+        "Т11",
+        "Т21",
+        "T11",
+        "T21"
+      ],
+      "log": "Опалення водяне",
+      "prefix": "ОПАЛЕННЯ ВОДЯНЕ",
+      "sort_prefix": "ОПАЛЕННЯ ВОДЯНЕ"
+    },
+    {
+      "system_type_key": "ADSK_11_ТП_Теплопостачання_Т12",
+      "strategy": "DynamicNameStrategy",
+      "search": "ТП",
+      "log": "Система теплопостачання",
+      "prefix": "ТП",
+      "sort_prefix": "ТП"
+    },
+    {
+      "system_type_key": "ADSK_08_ДС_Дренажна система",
+      "strategy": "DynamicNameStrategy",
+      "search": "ДС",
+      "log": "Дренажна система",
+      "prefix": "ДС",
+      "sort_prefix": "ДС"
+    },
+    {
+      "system_type_key": "ADSK_13_Опалення_ЕК",
+      "strategy": "ConstantNameStrategy",
+      "search": "ЕК",
+      "log": "Опалення електроконвекторне",
+      "prefix": "ОПАЛЕННЯ ЕЛЕКТРОКОНВЕКТОРНЕ",
+      "sort_prefix": "ОПАЛЕННЯ ЕЛЕКТРОКОНВЕКТОРНЕ"
+    },
+    {
+      "system_type_key": "ADSK_18_К1_Канализація побутова",
+      "exclude": "ЕК",
+      "strategy": "ConstantNameStrategy",
+      "search": "К1",
+      "log": "Побутова каналізація",
+      "prefix": "К1",
+      "sort_prefix": "К1"
+    }
+  ]
+}
